@@ -7,7 +7,7 @@ Passos:
          pip install torch scikit-learn numpy
   3. Edite os blocos FIGHTER_A e FIGHTER_B com os dados do confronto
   4. Execute:
-         python como_usar.py
+         python main.py
 
 Campos:
   - Se não souber um valor de performance (sig_strikes_per_min etc.),
@@ -31,62 +31,58 @@ from predict import FightPredictor
 #  PREENCHA AQUI — Lutador A
 # ══════════════════════════════════════════════════════════════════════════════
 
-FIGHTER_A_NOME = "Leon Edwards"
+FIGHTER_A_NOME = "Khamzat Chimaev"
 
 FIGHTER_A = {
-    "height_cm":    188.0,
-    "weight_kg":    77.1,
-    "reach_arm_cm": 188.0,
-    "age":          34.2,
-    "stance":       "Southpaw",
-
-    "wins":         14,
-    "losses":       4,
-    "draws":        0,
-    "wins_ko":      3,
-    "wins_sub":     1,
-    "wins_dec":     10,
-    "total_fights": 19,
-
-    "sig_strikes_hit_total": 861,
-    "td_hit_total":          26,
-    "sub_att_total":         8,
-    "kd_total":              5,
-    "sig_strikes_per_min":   2.616,
-    "td_per_15min":          1.185,
-    "sub_per_15min":         0.365,
-    "avg_fight_time_sec":    1039.4,
+    "height_cm": 188.0     ,
+    "weight_kg": 83.9      ,
+    "reach_arm_cm": 190.5     ,
+    "stance": "Orthodox",
+    "age": 32.0      ,
+    "wins": 9         ,
+    "losses": 0         ,
+    "draws": 0         ,
+    "wins_ko": 2         ,
+    "wins_sub": 4         ,
+    "wins_dec": 3         ,
+    "total_fights": 9         ,
+    "sig_strikes_hit_total": 298.0     ,
+    "td_hit_total": 26.0      ,
+    "sub_att_total": 9.0       ,
+    "kd_total": 2.0       ,
+    "sig_strikes_per_min": 4.044     ,
+    "td_per_15min": 5.293     ,
+    "sub_per_15min": 1.832     ,
+    "avg_fight_time_sec": 491.2     ,
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PREENCHA AQUI — Lutador B
 # ══════════════════════════════════════════════════════════════════════════════
 
-FIGHTER_B_NOME = "Carlos Prates"
+FIGHTER_B_NOME = "Sean Strickland"
 
 FIGHTER_B = {
-    "height_cm":    185.4,
-    "weight_kg":    77.1,
-    "reach_arm_cm": 198.1,
-    "age":          32.2,
-    "stance":       "Switch",
-
-    "wins":         6,
-    "losses":       1,
-    "draws":        0,
-    "wins_ko":      6,
-    "wins_sub":     0,
-    "wins_dec":     0,
-    "total_fights": 7,
-
-    "sig_strikes_hit_total": 244,
-    "td_hit_total":          1,
-    "sub_att_total":         0,
-    "kd_total":              9,
-    "sig_strikes_per_min":   3.817,
-    "td_per_15min":          0.235,
-    "sub_per_15min":         0.0,
-    "avg_fight_time_sec":    547.9,
+    "height_cm": 185.4     ,
+    "weight_kg": 83.9      ,
+    "reach_arm_cm": 193.0     ,
+    "stance": "Orthodox",
+    "age": 35.2      ,
+    "wins": 17        ,
+    "losses": 7         ,
+    "draws": 0         ,
+    "wins_ko": 5         ,
+    "wins_sub": 1         ,
+    "wins_dec": 11        ,
+    "total_fights": 24        ,
+    "sig_strikes_hit_total": 2307.0    ,
+    "td_hit_total": 18.0      ,
+    "sub_att_total": 4.0       ,
+    "kd_total": 7.0       ,
+    "sig_strikes_per_min": 6.045     ,
+    "td_per_15min": 0.707     ,
+    "sub_per_15min": 0.157     ,
+    "avg_fight_time_sec": 954.1     ,
 }
 
 # ══════════════════════════════════════════════════════════════════════════════

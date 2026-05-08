@@ -1,0 +1,1 @@
+python ufc_fighter_scraper.py --url "http://ufcstats.com/fighter-details/0d8011111be000b2"
