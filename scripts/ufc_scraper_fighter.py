@@ -2,7 +2,7 @@
 UFC Fighter Stats Scraper — Obtém os dados atualizados de um lutador específico.
 
 Uso:
-    python ufc_fighter_scraper.py --url "http://ufcstats.com/fighter-details/..."
+    python ufc_scraper_fighter.py --url "http://ufcstats.com/fighter-details/767755fd74662dbf"
 """
 
 import requests
