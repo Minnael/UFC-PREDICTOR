@@ -10,7 +10,8 @@ Uso:
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import time, re, logging
+import time, re, logging, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
@@ -25,7 +26,15 @@ HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     )
 }
-DELAY = 1.5
+DELAY       = 1
+MAX_WORKERS = 6       # threads simultâneas por evento
+_req_lock   = threading.Lock()   # garante 1 request por vez por thread
+
+def _throttled_get(url: str) -> Optional[BeautifulSoup]:
+    """get() com lock — impede rajadas simultâneas no servidor."""
+    with _req_lock:
+        time.sleep(DELAY)
+    return get(url)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -362,6 +371,11 @@ def calc_stats(profile: dict, before: datetime) -> dict:
 
 def build_dataset(max_events: int = None, output: str = "ufc_dataset.csv"):
     fighter_cache: dict[str, dict] = {}
+    cache_lock = threading.Lock()   # protege fighter_cache
+    rows: list[dict] = []
+    rows_lock  = threading.Lock()   # protege lista rows
+    save_lock  = threading.Lock()   # protege escrita no CSV
+
     events = get_all_events()
     if not events:
         log.error("Nenhum evento carregado.")
@@ -370,60 +384,94 @@ def build_dataset(max_events: int = None, output: str = "ufc_dataset.csv"):
     if max_events:
         events = events[:max_events]
 
-    rows = []
+    # ── Carrega perfil com cache thread-safe ─────────────────────────────────
+    def load_profile(url: str, name: str) -> Optional[dict]:
+        if not url:
+            return None
+        with cache_lock:
+            if url in fighter_cache:
+                return fighter_cache[url]
+        # Busca fora do lock para não bloquear outros threads durante o request
+        log.info(f"    Perfil: {name}")
+        profile = get_fighter_profile(url)
+        with cache_lock:
+            fighter_cache.setdefault(url, profile)   # evita sobrescrever se outro thread chegou primeiro
+        return fighter_cache.get(url)
 
+    # ── Processa uma luta individualmente (rodará em thread) ─────────────────
+    def process_fight(fight: dict, event: dict) -> Optional[dict]:
+        soup_details = _throttled_get(fight["fight_url"])
+        if not soup_details:
+            return None
+
+        # Reutiliza get_fight_details mas passando o soup já carregado
+        details = get_fight_details(fight["fight_url"])
+        if not details:
+            return None
+
+        winner = details.get("winner", "")
+        if winner not in ("A", "B"):
+            log.info(f"    Pulando (NC/Draw): {fight['fight_url']}")
+            return None
+
+        # Busca perfis A e B em paralelo (2 threads internos)
+        url_a = details.get("fighter_a_url")
+        url_b = details.get("fighter_b_url")
+        name_a = details.get("fighter_a_name", "")
+        name_b = details.get("fighter_b_name", "")
+
+        with ThreadPoolExecutor(max_workers=2) as inner:
+            fut_a = inner.submit(load_profile, url_a, name_a)
+            fut_b = inner.submit(load_profile, url_b, name_b)
+            pa = fut_a.result()
+            pb = fut_b.result()
+
+        if not pa or not pb:
+            return None
+
+        sa = calc_stats(pa, before=event["date"])
+        sb = calc_stats(pb, before=event["date"])
+
+        row = {
+            "event_name": event["name"],
+            "event_date": event["date"].date(),
+            "fighter_a":  name_a,
+            "fighter_b":  name_b,
+            "winner":     winner,
+            "label":      1 if winner == "A" else 0,
+            "method":     details.get("method", ""),
+            "round":      details.get("round"),
+            "time":       details.get("time", ""),
+        }
+        for k, v in sa.items(): row[f"a_{k}"] = v
+        for k, v in sb.items(): row[f"b_{k}"] = v
+
+        log.info(f"    ✓ {name_a} vs {name_b} → {winner}")
+        return row
+
+    # ── Loop de eventos (sequencial) ─────────────────────────────────────────
     for ei, event in enumerate(events):
         log.info(f"[{ei+1}/{len(events)}] {event['name']} — {event['date'].date()}")
         time.sleep(DELAY)
 
         fights = get_fights_from_event(event)
-        if not fights: continue
+        if not fights:
+            continue
 
-        for fight in fights:
-            time.sleep(DELAY)
-            details = get_fight_details(fight["fight_url"])
-            if not details: continue
+        # Lutas do evento processadas em paralelo
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(process_fight, f, event): f for f in fights}
+            for fut in as_completed(futures):
+                result = fut.result()
+                if result:
+                    with rows_lock:
+                        rows.append(result)
 
-            winner = details.get("winner","")
-            if winner not in ("A","B"):
-                log.info(f"    Pulando (NC/Draw)")
-                continue
-
-            def load(url, name):
-                if not url: return None
-                if url not in fighter_cache:
-                    log.info(f"    Perfil: {name}")
-                    time.sleep(DELAY)
-                    fighter_cache[url] = get_fighter_profile(url)
-                return fighter_cache.get(url)
-
-            pa = load(details.get("fighter_a_url"), details.get("fighter_a_name"))
-            pb = load(details.get("fighter_b_url"), details.get("fighter_b_name"))
-            if not pa or not pb: continue
-
-            sa = calc_stats(pa, before=event["date"])
-            sb = calc_stats(pb, before=event["date"])
-
-            row = {
-                "event_name": event["name"],
-                "event_date": event["date"].date(),
-                "fighter_a":  details["fighter_a_name"],
-                "fighter_b":  details["fighter_b_name"],
-                "winner":     winner,
-                "label":      1 if winner == "A" else 0,
-                "method":     details.get("method",""),
-                "round":      details.get("round"),
-                "time":       details.get("time",""),
-            }
-            for k, v in sa.items(): row[f"a_{k}"] = v
-            for k, v in sb.items(): row[f"b_{k}"] = v
-
-            rows.append(row)
-            log.info(f"    ✓ {details['fighter_a_name']} vs {details['fighter_b_name']} → {winner}")
-
-        if rows:
-            pd.DataFrame(rows).to_csv(output, index=False)
-            log.info(f"  💾 {len(rows)} lutas salvas em '{output}'")
+        # Salva após cada evento
+        with save_lock:
+            if rows:
+                pd.DataFrame(rows).to_csv(output, index=False)
+                log.info(f"  💾 {len(rows)} lutas salvas em '{output}'")
 
     pd.DataFrame(rows).to_csv(output, index=False)
     log.info(f"\n✅ Concluído! {len(rows)} lutas → '{output}'")

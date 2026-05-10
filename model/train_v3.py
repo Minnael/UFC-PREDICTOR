@@ -27,8 +27,8 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-DATA_PATH  = "/mnt/user-data/uploads/ufc_dataset.csv"
-OUT_DIR    = "/home/claude/ufc_mlp/artifacts_v3"
+DATA_PATH  = "ufc_dataset.csv"
+OUT_DIR    = "artifacts"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 STANCE_MAP   = {"Orthodox": 0, "Southpaw": 1, "Switch": 2}
@@ -346,7 +346,7 @@ def main():
 
     # ── Loop ─────────────────────────────────────────────────────────────────
     EPOCHS    = 200
-    PATIENCE  = 30
+    PATIENCE  = 40
     best_val  = float("inf")
     no_improv = 0
     history   = {"train_loss": [], "val_loss": [], "val_acc": []}
