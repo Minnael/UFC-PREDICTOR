@@ -15,6 +15,8 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
@@ -70,8 +72,8 @@ def load_and_clean(path: str) -> pd.DataFrame:
 
 def temporal_split(df: pd.DataFrame):
     n       = len(df)
-    n_train = int(n * 0.70)
-    n_val   = int(n * 0.20)
+    n_train = int(n * 0.75)
+    n_val   = int(n * 0.15)
     n_test  = n - n_train - n_val
 
     df_train = df.iloc[:n_train].reset_index(drop=True)
@@ -281,8 +283,8 @@ def calibrate_temperature(model, val_loader, device):
         for xb, yb in val_loader:
             all_logits.append(model(xb.to(device)).cpu())
             all_labels.append(yb)
-    logits = torch.cat(all_logits)
-    labels = torch.cat(all_labels)
+    logits = torch.cat(all_logits).to(device)
+    labels = torch.cat(all_labels).to(device)
 
     def closure():
         opt.zero_grad()
@@ -293,6 +295,50 @@ def calibrate_temperature(model, val_loader, device):
     opt.step(closure)
     print(f"  Temperatura calibrada: {ts.temperature.item():.4f}")
     return ts
+
+
+def save_plots(history: dict, te_trues, te_preds, out_dir: str):
+    # ── Gráfico de overfitting ────────────────────────────────────────────────
+    epochs = range(1, len(history["train_loss"]) + 1)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle("Curvas de Treinamento", fontsize=14, fontweight="bold")
+
+    # Loss
+    axes[0].plot(epochs, history["train_loss"], label="Treino",     color="royalblue")
+    axes[0].plot(epochs, history["val_loss"],   label="Validação",  color="tomato")
+    axes[0].set_title("Loss")
+    axes[0].set_xlabel("Época")
+    axes[0].set_ylabel("CrossEntropy Loss")
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    # Acurácia de validação
+    axes[1].plot(epochs, history["val_acc"], color="seagreen", label="Val Acc")
+    axes[1].axhline(y=max(history["val_acc"]), color="gray", linestyle="--",
+                    alpha=0.6, label=f"Máx: {max(history['val_acc']):.1%}")
+    axes[1].set_title("Acurácia — Validação")
+    axes[1].set_xlabel("Época")
+    axes[1].set_ylabel("Acurácia")
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(f"{out_dir}/training_curves.png", dpi=150)
+    plt.close()
+    print(f"  📈 Curvas salvas em: {out_dir}/training_curves.png")
+
+    # ── Matriz de confusão ────────────────────────────────────────────────────
+    cm   = confusion_matrix(te_trues, te_preds)
+    disp = ConfusionMatrixDisplay(cm, display_labels=["B vence", "A vence"])
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    disp.plot(ax=ax, cmap="Blues", values_format="d")
+    ax.set_title("Matriz de Confusão — Conjunto de Teste", fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(f"{out_dir}/confusion_matrix.png", dpi=150)
+    plt.close()
+    print(f"  🔢 Matriz salva em:  {out_dir}/confusion_matrix.png")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -439,6 +485,9 @@ def main():
         json.dump(meta, f, indent=2)
 
     print(f"\n✅ Artefatos salvos em: {OUT_DIR}")
+
+    print("\nGerando gráficos...")
+    save_plots(history, te_trues, te_preds, OUT_DIR)
 
 
 if __name__ == "__main__":
