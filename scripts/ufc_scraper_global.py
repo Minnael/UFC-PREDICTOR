@@ -2,39 +2,81 @@
 UFC Stats Scraper v3 — seletores baseados no HTML real inspecionado.
 
 Uso:
-    python ufc_scraper_v3.py --test            # 3 eventos
-    python ufc_scraper_v3.py --max-events 50   # N eventos
-    python ufc_scraper_v3.py                   # todos (horas)
+    python ufc_scraper_global.py --test            # 3 eventos
+    python ufc_scraper_global.py --max-events 50   # N eventos
+    python ufc_scraper_global.py                   # todos (horas)
 """
 
-import requests
 from bs4 import BeautifulSoup
 import pandas as pd
-import time, re, logging, threading
+import time, re, logging, threading, queue
+import concurrent.futures as cf
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
+from playwright.sync_api import sync_playwright, Page
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-BASE    = "http://ufcstats.com"
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    )
-}
+BASE        = "http://ufcstats.com"
 DELAY       = 1
-MAX_WORKERS = 6       # threads simultâneas por evento
-_req_lock   = threading.Lock()   # garante 1 request por vez por thread
+MAX_WORKERS = 6
 
-def _throttled_get(url: str) -> Optional[BeautifulSoup]:
-    """get() com lock — impede rajadas simultâneas no servidor."""
-    with _req_lock:
-        time.sleep(DELAY)
-    return get(url)
+
+# ─────────────────────────────────────────────────────────────
+# Playwright — thread dedicada com fila de requests
+#
+# O sync_playwright usa greenlets e NÃO pode ser chamado de
+# threads diferentes da que o criou. Solução: uma única thread
+# "playwright-loop" consome a fila; as demais threads submetem
+# URLs e aguardam o resultado via concurrent.futures.Future.
+# ─────────────────────────────────────────────────────────────
+
+_request_queue: queue.Queue = queue.Queue()
+
+def _playwright_loop():
+    pw      = sync_playwright().start()
+    browser = pw.chromium.launch(headless=True)
+    context = browser.new_context(
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
+    )
+    page: Page = context.new_page()
+
+    while True:
+        item = _request_queue.get()
+        if item is None:          # sinal de encerramento
+            _request_queue.task_done()
+            break
+        url, fut = item
+        try:
+            time.sleep(DELAY)
+            page.goto(url, wait_until="networkidle", timeout=30_000)
+            soup = BeautifulSoup(page.content(), "html.parser")
+            if not fut.done():
+                fut.set_result(soup)
+        except Exception as e:
+            if not fut.done():
+                fut.set_exception(e)
+        finally:
+            _request_queue.task_done()
+
+    page.close()
+    browser.close()
+    pw.stop()
+
+_pw_thread = threading.Thread(target=_playwright_loop, daemon=True, name="playwright-loop")
+_pw_thread.start()
+
+import atexit
+def _shutdown():
+    _request_queue.put(None)   # sinaliza encerramento
+    _pw_thread.join(timeout=10)
+atexit.register(_shutdown)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -42,15 +84,20 @@ def _throttled_get(url: str) -> Optional[BeautifulSoup]:
 # ─────────────────────────────────────────────────────────────
 
 def get(url: str) -> Optional[BeautifulSoup]:
+    """Submete URL para a thread do Playwright e aguarda o resultado."""
     for attempt in range(3):
+        fut: cf.Future = cf.Future()
+        _request_queue.put((url, fut))
         try:
-            r = requests.get(url, headers=HEADERS, timeout=20)
-            r.raise_for_status()
-            return BeautifulSoup(r.text, "html.parser")
+            return fut.result(timeout=60)
         except Exception as e:
             log.warning(f"[{attempt+1}/3] {url} — {e}")
             time.sleep(3)
     return None
+
+def _throttled_get(url: str) -> Optional[BeautifulSoup]:
+    """Alias de get() — delay já está dentro da thread do Playwright."""
+    return get(url)
 
 def clean(t: str) -> str:
     return " ".join(t.split())
@@ -79,7 +126,6 @@ def parse_date(v: str) -> Optional[datetime]:
     return None
 
 def p_texts(td) -> list[str]:
-    """Retorna textos de todos os <p> dentro de um <td>."""
     return [clean(p.get_text()) for p in td.find_all("p", class_="b-fight-details__table-text")]
 
 def fight_seconds(time_str: str, rnd) -> float:
@@ -121,7 +167,6 @@ def get_fights_from_event(event: dict) -> list[dict]:
     if not soup: return []
 
     fights = []
-    # Cada luta é uma <tr> com data-link
     for row in soup.find_all("tr", attrs={"data-link": True}):
         fight_url = row["data-link"].strip()
         if "fight-details" not in fight_url: continue
@@ -139,13 +184,10 @@ def get_fights_from_event(event: dict) -> list[dict]:
 # 3. Detalhes de uma luta
 # ─────────────────────────────────────────────────────────────
 
-def get_fight_details(fight_url: str) -> Optional[dict]:
-    soup = get(fight_url)
-    if not soup: return None
-
+def get_fight_details(soup: BeautifulSoup) -> Optional[dict]:
+    """Recebe soup já carregado — sem request extra."""
     d = {}
 
-    # Nomes e links dos lutadores
     person_divs = soup.find_all("div", class_="b-fight-details__person")
     if len(person_divs) < 2: return None
 
@@ -164,11 +206,10 @@ def get_fight_details(fight_url: str) -> Optional[dict]:
     d["fighter_a_url"]  = urls_f[0]
     d["fighter_b_url"]  = urls_f[1]
 
-    if results_raw[0] == "W":       d["winner"] = "A"
-    elif results_raw[1] == "W":     d["winner"] = "B"
-    else:                           d["winner"] = "NC"
+    if results_raw[0] == "W":   d["winner"] = "A"
+    elif results_raw[1] == "W": d["winner"] = "B"
+    else:                       d["winner"] = "NC"
 
-    # Método, round, tempo
     for p in soup.find_all("p", class_="b-fight-details__text"):
         txt = clean(p.get_text(separator=" "))
         if "Method:" in txt:
@@ -194,15 +235,11 @@ def get_fighter_profile(url: str) -> Optional[dict]:
 
     p = {"url": url}
 
-    # Nome
     name_tag = soup.find("span", class_="b-content__title-highlight")
     p["name"] = clean(name_tag.text) if name_tag else ""
 
-    # Todos os <li> com classe b-list__box-list-item_type_block
-    # contêm TANTO atributos físicos QUANTO stats de carreira
     for li in soup.find_all("li", class_="b-list__box-list-item_type_block"):
         txt = clean(li.get_text(separator=" "))
-
         if txt.startswith("Height:"):
             p["height_cm"]    = parse_height(txt.replace("Height:","").strip())
         elif txt.startswith("Weight:"):
@@ -214,8 +251,6 @@ def get_fighter_profile(url: str) -> Optional[dict]:
         elif txt.startswith("DOB:"):
             p["dob"]          = parse_date(txt.replace("DOB:","").strip())
 
-
-    # Histórico de lutas
     p["fight_history"] = _parse_fight_history(soup, url)
     return p
 
@@ -226,13 +261,13 @@ def _parse_fight_history(soup: BeautifulSoup, fighter_url: str) -> list[dict]:
       td[0]: resultado   flag win/loss/draw/nc
       td[1]: nomes       [este lutador, adversário]
       td[2]: KD          [este, adversário]
-      td[3]: Sig.Str.hit [este, adversário]  ex: "104", "41"
+      td[3]: Sig.Str.hit [este, adversário]
       td[4]: TD hit      [este, adversário]
       td[5]: Sub.Att     [este, adversário]
-      td[6]: Evento + Data  ex: "UFC Fight Night...", "May. 02, 2026"
-      td[7]: Método      ex: "KO/TKO", "Decision - Unanimous"
-      td[8]: Round       ex: "3"
-      td[9]: Tempo       ex: "3:17"
+      td[6]: Evento + Data
+      td[7]: Método
+      td[8]: Round
+      td[9]: Tempo
     """
     history = []
 
@@ -241,62 +276,35 @@ def _parse_fight_history(soup: BeautifulSoup, fighter_url: str) -> list[dict]:
         if len(tds) < 10:
             continue
 
-        # Resultado
         flag = tds[0].find("i", class_="b-flag__text")
         result_txt = clean(flag.get_text()) if flag else ""
         result_map = {"win": "W", "loss": "L", "draw": "D", "nc": "NC"}
         result = result_map.get(result_txt.lower(), result_txt.upper())
 
-        # KD — td[2], primeiro <p> = este lutador
-        kd_ps = p_texts(tds[2])
-        kd = pf(kd_ps[0]) if kd_ps else None
+        kd_ps     = p_texts(tds[2]); kd        = pf(kd_ps[0])     if kd_ps     else None
+        sig_ps    = p_texts(tds[3]); sig_hit   = pf(sig_ps[0])    if sig_ps    else None
+        td_ps     = p_texts(tds[4]); td_hit    = pf(td_ps[0])     if td_ps     else None
+        sub_ps    = p_texts(tds[5]); sub_att_n = pf(sub_ps[0])    if sub_ps    else None
 
-        # Sig. Strikes hit — td[3]
-        sig_ps = p_texts(tds[3])
-        sig_hit = pf(sig_ps[0]) if sig_ps else None
-
-        # TD hit — td[4]
-        td_ps = p_texts(tds[4])
-        td_hit = pf(td_ps[0]) if td_ps else None
-
-        # Sub. Att — td[5]
-        sub_ps = p_texts(tds[5])
-        sub_att_n = pf(sub_ps[0]) if sub_ps else None
-
-        # Data — td[6], segundo <p>
         date = None
         date_ps = p_texts(tds[6])
         if len(date_ps) >= 2:
             date = parse_date(date_ps[1])
-
         if not date:
             continue
 
-        # Método — td[7], primeiro <p>
-        method_ps = p_texts(tds[7])
-        method = method_ps[0] if method_ps else ""
-
-        # Round — td[8]
-        round_ps = p_texts(tds[8])
-        rnd = None
+        method_ps = p_texts(tds[7]); method    = method_ps[0]     if method_ps else ""
+        round_ps  = p_texts(tds[8]); rnd       = None
         if round_ps:
             try: rnd = int(round_ps[0])
             except: pass
-
-        # Tempo — td[9]
-        time_ps = p_texts(tds[9])
-        fight_time = time_ps[0] if time_ps else ""
+        time_ps   = p_texts(tds[9]); fight_time = time_ps[0]      if time_ps   else ""
 
         history.append({
-            "date":            date,
-            "result":          result,
-            "method":          method,
-            "round":           rnd,
-            "time":            fight_time,
-            "kd":              kd,
-            "sig_strikes_hit": sig_hit,
-            "td_hit":          td_hit,
-            "sub_att":         sub_att_n,
+            "date": date, "result": result, "method": method,
+            "round": rnd, "time": fight_time,
+            "kd": kd, "sig_strikes_hit": sig_hit,
+            "td_hit": td_hit, "sub_att": sub_att_n,
         })
 
     return sorted(history, key=lambda x: x["date"])
@@ -322,23 +330,17 @@ def calc_stats(profile: dict, before: datetime) -> dict:
     wins   = [f for f in hist if f["result"] == "W"]
     losses = [f for f in hist if f["result"] == "L"]
 
-    s["wins"]        = len(wins)
-    s["losses"]      = len(losses)
-    s["draws"]       = len([f for f in hist if f["result"] == "D"])
-    s["wins_ko"]     = sum(1 for f in wins if re.search(r"KO|TKO", f.get("method",""), re.I))
-    s["wins_sub"]    = sum(1 for f in wins if re.search(r"Sub",    f.get("method",""), re.I))
-    s["wins_dec"]    = sum(1 for f in wins if re.search(r"Dec",    f.get("method",""), re.I))
-    s["total_fights"]= len(hist)
+    s["wins"]         = len(wins)
+    s["losses"]       = len(losses)
+    s["draws"]        = len([f for f in hist if f["result"] == "D"])
+    s["wins_ko"]      = sum(1 for f in wins if re.search(r"KO|TKO", f.get("method",""), re.I))
+    s["wins_sub"]     = sum(1 for f in wins if re.search(r"Sub",    f.get("method",""), re.I))
+    s["wins_dec"]     = sum(1 for f in wins if re.search(r"Dec",    f.get("method",""), re.I))
+    s["total_fights"] = len(hist)
 
     NULLS = [
-        "sig_strikes_hit_total",
-        "td_hit_total",
-        "sub_att_total",
-        "kd_total",
-        "sig_strikes_per_min",
-        "td_per_15min",
-        "sub_per_15min",
-        "avg_fight_time_sec",
+        "sig_strikes_hit_total", "td_hit_total", "sub_att_total", "kd_total",
+        "sig_strikes_per_min", "td_per_15min", "sub_per_15min", "avg_fight_time_sec",
     ]
 
     if not hist:
@@ -348,19 +350,19 @@ def calc_stats(profile: dict, before: datetime) -> dict:
     total_sec = sum(fight_seconds(f["time"], f["round"]) for f in hist)
     total_min = max(total_sec / 60, 0.01)
 
-    sig_h  = sum(f["sig_strikes_hit"] or 0 for f in hist)
-    td_h   = sum(f["td_hit"]          or 0 for f in hist)
-    sub    = sum(f["sub_att"]         or 0 for f in hist)
-    kd     = sum(f["kd"]              or 0 for f in hist)
+    sig_h = sum(f["sig_strikes_hit"] or 0 for f in hist)
+    td_h  = sum(f["td_hit"]          or 0 for f in hist)
+    sub   = sum(f["sub_att"]         or 0 for f in hist)
+    kd    = sum(f["kd"]              or 0 for f in hist)
 
-    s["sig_strikes_hit_total"]   = sig_h
-    s["td_hit_total"]            = td_h
-    s["sub_att_total"]           = sub
-    s["kd_total"]                = kd
-    s["sig_strikes_per_min"]     = round(sig_h/total_min, 3)
-    s["td_per_15min"]            = round(td_h/total_min*15, 3)
-    s["sub_per_15min"]           = round(sub/total_min*15, 3)
-    s["avg_fight_time_sec"]      = round(total_sec/len(hist), 1)
+    s["sig_strikes_hit_total"] = sig_h
+    s["td_hit_total"]          = td_h
+    s["sub_att_total"]         = sub
+    s["kd_total"]              = kd
+    s["sig_strikes_per_min"]   = round(sig_h/total_min, 3)
+    s["td_per_15min"]          = round(td_h/total_min*15, 3)
+    s["sub_per_15min"]         = round(sub/total_min*15, 3)
+    s["avg_fight_time_sec"]    = round(total_sec/len(hist), 1)
 
     return s
 
@@ -371,10 +373,10 @@ def calc_stats(profile: dict, before: datetime) -> dict:
 
 def build_dataset(max_events: int = None, output: str = "ufc_dataset.csv"):
     fighter_cache: dict[str, dict] = {}
-    cache_lock = threading.Lock()   # protege fighter_cache
+    cache_lock = threading.Lock()
     rows: list[dict] = []
-    rows_lock  = threading.Lock()   # protege lista rows
-    save_lock  = threading.Lock()   # protege escrita no CSV
+    rows_lock  = threading.Lock()
+    save_lock  = threading.Lock()
 
     events = get_all_events()
     if not events:
@@ -384,39 +386,31 @@ def build_dataset(max_events: int = None, output: str = "ufc_dataset.csv"):
     if max_events:
         events = events[:max_events]
 
-    # ── Carrega perfil com cache thread-safe ─────────────────────────────────
     def load_profile(url: str, name: str) -> Optional[dict]:
-        if not url:
-            return None
+        if not url: return None
         with cache_lock:
             if url in fighter_cache:
                 return fighter_cache[url]
-        # Busca fora do lock para não bloquear outros threads durante o request
         log.info(f"    Perfil: {name}")
         profile = get_fighter_profile(url)
         with cache_lock:
-            fighter_cache.setdefault(url, profile)   # evita sobrescrever se outro thread chegou primeiro
+            fighter_cache.setdefault(url, profile)
         return fighter_cache.get(url)
 
-    # ── Processa uma luta individualmente (rodará em thread) ─────────────────
     def process_fight(fight: dict, event: dict) -> Optional[dict]:
-        soup_details = _throttled_get(fight["fight_url"])
-        if not soup_details:
-            return None
+        soup_fight = _throttled_get(fight["fight_url"])
+        if not soup_fight: return None
 
-        # Reutiliza get_fight_details mas passando o soup já carregado
-        details = get_fight_details(fight["fight_url"])
-        if not details:
-            return None
+        details = get_fight_details(soup_fight)
+        if not details: return None
 
         winner = details.get("winner", "")
         if winner not in ("A", "B"):
             log.info(f"    Pulando (NC/Draw): {fight['fight_url']}")
             return None
 
-        # Busca perfis A e B em paralelo (2 threads internos)
-        url_a = details.get("fighter_a_url")
-        url_b = details.get("fighter_b_url")
+        url_a  = details.get("fighter_a_url", "")
+        url_b  = details.get("fighter_b_url", "")
         name_a = details.get("fighter_a_name", "")
         name_b = details.get("fighter_b_name", "")
 
@@ -426,8 +420,7 @@ def build_dataset(max_events: int = None, output: str = "ufc_dataset.csv"):
             pa = fut_a.result()
             pb = fut_b.result()
 
-        if not pa or not pb:
-            return None
+        if not pa or not pb: return None
 
         sa = calc_stats(pa, before=event["date"])
         sb = calc_stats(pb, before=event["date"])
@@ -449,16 +442,13 @@ def build_dataset(max_events: int = None, output: str = "ufc_dataset.csv"):
         log.info(f"    ✓ {name_a} vs {name_b} → {winner}")
         return row
 
-    # ── Loop de eventos (sequencial) ─────────────────────────────────────────
     for ei, event in enumerate(events):
         log.info(f"[{ei+1}/{len(events)}] {event['name']} — {event['date'].date()}")
         time.sleep(DELAY)
 
         fights = get_fights_from_event(event)
-        if not fights:
-            continue
+        if not fights: continue
 
-        # Lutas do evento processadas em paralelo
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {pool.submit(process_fight, f, event): f for f in fights}
             for fut in as_completed(futures):
@@ -467,7 +457,6 @@ def build_dataset(max_events: int = None, output: str = "ufc_dataset.csv"):
                     with rows_lock:
                         rows.append(result)
 
-        # Salva após cada evento
         with save_lock:
             if rows:
                 pd.DataFrame(rows).to_csv(output, index=False)

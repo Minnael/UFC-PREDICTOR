@@ -1,21 +1,10 @@
 import sys, os, json, time
-import requests
-from bs4 import BeautifulSoup
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
-from ufc_scraper_fighter import get_fighter_profile, calc_stats
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
-
-def get(url):
-    r = requests.get(url, headers=HEADERS, timeout=20)
-    return BeautifulSoup(r.text, "html.parser")
-
-def parse_date(v):
-    for fmt in ("%B %d, %Y", "%b. %d, %Y", "%b %d, %Y"):
-        try: return datetime.strptime(" ".join(v.split()), fmt)
-        except: pass
+# Reutiliza o Playwright e as funções já prontas do scraper global
+from ufc_scraper_global import get, get_fighter_profile, calc_stats, parse_date
 
 # ── 1. Próximo evento ─────────────────────────────────────────
 soup = get("http://ufcstats.com/statistics/events/upcoming?page=all")
@@ -28,7 +17,6 @@ for row in soup.find_all("tr", class_="b-statistics__table-row"):
         print(f"Evento: {link.text.strip()} — {span.text.strip()}")
         break
 
-time.sleep(1.5)
 soup = get(event_url)
 
 # ── 2. Nomes + URLs dos lutadores ─────────────────────────────
@@ -54,9 +42,9 @@ fighter_cache = {}
 def get_stats(url):
     if url not in fighter_cache:
         print(f"  Coletando: {url}")
-        time.sleep(1.5)
         profile = get_fighter_profile(url)
-        fighter_cache[url] = calc_stats(profile) if profile else {}
+        # before=now: pega todo o histórico disponível (luta futura)
+        fighter_cache[url] = calc_stats(profile, before=datetime.now()) if profile else {}
     return fighter_cache[url]
 
 # ── 4. Monta JSON com nome como chave ─────────────────────────
