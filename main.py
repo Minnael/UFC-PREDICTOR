@@ -6,6 +6,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import json
+import copy
 from datetime import datetime
 
 # ── Dados ─────────────────────────────────────────────────────
@@ -80,61 +81,94 @@ def conf_color(conf_pct):
     if conf_pct < 35: return "#E07B1A"
     return "#C8102E"
 
+# ── Função para gerar os relatórios dinamicamente ─────────────
+def gerar_relatorio(evento_nome, considerar_idade=True):
+    sufixo = "- Oficial" if considerar_idade else "- Sem Influencia Idade"
+    nome_arquivo = f"{evento_nome} {sufixo}.pdf"
+    
+    doc = SimpleDocTemplate(
+        nome_arquivo,
+        pagesize=A4,
+        leftMargin=2*cm, rightMargin=2*cm,
+        topMargin=2*cm, bottomMargin=2*cm,
+    )
 
-# ── Monta PDF ─────────────────────────────────────────────────
-doc = SimpleDocTemplate(
-    "ufc_predictions.pdf",
-    pagesize=A4,
-    leftMargin=2*cm, rightMargin=2*cm,
-    topMargin=2*cm, bottomMargin=2*cm,
-)
+    story = []
 
-story = []
+    # Cabeçalho adaptado
+    story.append(Paragraph("UFC FIGHT PREDICTOR", s_title))
+    if considerar_idade:
+        story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", s_subtitle))
+    else:
+        # Destaca visualmente que é um relatório simulado
+        aviso_idade = ParagraphStyle("aviso", parent=s_subtitle, textColor=colors.HexColor("#E07B1A"))
+        story.append(Paragraph(f"Simulação What-If: Ignorando a Vantagem de Idade<br/>Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", aviso_idade))
+        
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#C8102E"), spaceAfter=20))
 
-story.append(Paragraph("UFC FIGHT PREDICTOR", s_title))
-story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", s_subtitle))
-story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#C8102E"), spaceAfter=20))
+    for i, fight in enumerate(fights, 1):
+        nomes = list(fight.keys())
+        nome_a, nome_b = nomes[0], nomes[1]
+        
+        # Faz uma cópia profunda (deepcopy) para não alterar o dicionário original
+        stats_a = copy.deepcopy(fight[nome_a])
+        stats_b = copy.deepcopy(fight[nome_b])
 
-for i, fight in enumerate(fights, 1):
-    nomes  = list(fight.keys())
-    nome_a, nome_b = nomes[0], nomes[1]
-    stats_a, stats_b = fight[nome_a], fight[nome_b]
+        # MÁGICA: Se não for para considerar idade, igualamos a idade dos dois (usando a média entre eles)
+        if not considerar_idade:
+            if "age" in stats_a and "age" in stats_b:
+                idade_media = (stats_a["age"] + stats_b["age"]) / 2.0
+                stats_a["age"] = idade_media
+                stats_b["age"] = idade_media
 
-    result = predictor.predict(stats_a, stats_b, name_a=nome_a, name_b=nome_b)
-    prob_a = result["prob_a"]
-    prob_b = result["prob_b"]
-    conf   = result["confidence"]
-    fav    = result["favorite"]
-    clabel = result["conf_label"].split(" ", 1)[-1].strip()
+        # Previsão
+        result = predictor.predict(stats_a, stats_b, name_a=nome_a, name_b=nome_b)
+        prob_a = result["prob_a"]
+        prob_b = result["prob_b"]
+        conf   = result["confidence"]
+        fav    = result["favorite"]
+        clabel = result["conf_label"].split(" ", 1)[-1].strip()
 
-    story.append(Paragraph(f"LUTA {i} DE {len(fights)}", s_fight_num))
-    story.append(Paragraph(f"{nome_a}  vs  {nome_b}", s_vs))
-    story.append(prob_bar_table(nome_a, prob_a, nome_b, prob_b))
-    story.append(Spacer(1, 8))
+        # Montagem do bloco da luta
+        story.append(Paragraph(f"LUTA {i} DE {len(fights)}", s_fight_num))
+        story.append(Paragraph(f"{nome_a}  vs  {nome_b}", s_vs))
+        story.append(prob_bar_table(nome_a, prob_a, nome_b, prob_b))
+        story.append(Spacer(1, 8))
 
-    cc = conf_color(conf)
-    story.append(Paragraph(f'Favorito: <font color="{cc}"><b>{fav}</b></font>', s_favorite))
-    story.append(Paragraph(f"Confianca: {clabel} ({conf:.1f}%)", s_conf))
+        cc = conf_color(conf)
+        story.append(Paragraph(f'Favorito: <font color="{cc}"><b>{fav}</b></font>', s_favorite))
+        story.append(Paragraph(f"Confianca: {clabel} ({conf:.1f}%)", s_conf))
 
-    if i < len(fights):
-        story.append(HRFlowable(width="100%", thickness=0.5,
-                                color=colors.HexColor("#DDDDDD"), spaceAfter=14))
+        if i < len(fights):
+            story.append(HRFlowable(width="100%", thickness=0.5,
+                                    color=colors.HexColor("#DDDDDD"), spaceAfter=14))
 
-story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#C8102E"), spaceBefore=10))
-story.append(Paragraph(
-    "Modelo treinado com dados historicos do ufcstats.com — apenas para fins informativos.",
-    ParagraphStyle("footer", fontSize=7, textColor=colors.HexColor("#AAAAAA"), alignment=TA_CENTER)
-))
+    # Rodapé
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#C8102E"), spaceBefore=10))
+    msg_rodape = "Modelo treinado com dados historicos do ufcstats.com — apenas para fins informativos."
+    if not considerar_idade:
+         msg_rodape = "CENÁRIO HIPOTÉTICO: Idades de ambos os lutadores igualadas para remover viés de juventude. " + msg_rodape
+         
+    story.append(Paragraph(
+        msg_rodape,
+        ParagraphStyle("footer", fontSize=7, textColor=colors.HexColor("#AAAAAA"), alignment=TA_CENTER)
+    ))
 
-def add_metadata(canvas, doc):
-    canvas.setAuthor("Minnael Campelo")
-    canvas.setTitle("UFC FREEDOM -> SEM IDADE")
-    canvas.setSubject("Previsões de lutas do UFC")
-    canvas.setCreator("UFC Fight Predictor")
+    def add_metadata(canvas, doc):
+        canvas.setAuthor("Minnael Campelo")
+        canvas.setTitle(f"{evento_nome} {sufixo}")
+        canvas.setSubject("Previsões de lutas do UFC")
+        canvas.setCreator("UFC Fight Predictor")
 
-doc.build(
-    story,
-    onFirstPage=add_metadata,
-    onLaterPages=add_metadata
-)
-print("PDF salvo em ufc_predictions.pdf")
+    doc.build(story, onFirstPage=add_metadata, onLaterPages=add_metadata)
+    print(f"✅ PDF salvo: '{nome_arquivo}'")
+
+# ── Execução ──────────────────────────────────────────────────
+evento_alvo = "UFC Freedom 250"
+
+print("Gerando relatórios...")
+# 1. Gera o PDF normal (com as idades reais)
+gerar_relatorio(evento_alvo, considerar_idade=True)
+
+# 2. Gera o PDF hipotético (onde ambos têm a mesma idade)
+gerar_relatorio(evento_alvo, considerar_idade=False)

@@ -30,7 +30,7 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-DATA_PATH  = "ufc_dataset.csv"
+DATA_PATH  = "ufc_dataset_v2.csv"
 OUT_DIR    = "artifacts"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -42,7 +42,7 @@ NUMERIC_BASE = [
     "sig_strikes_hit_total", "td_hit_total", "sub_att_total", "kd_total",
     "sig_strikes_per_min", "td_per_15min", "sub_per_15min",
     "avg_fight_time_sec",
-    "win_streak", "loss_streak",   # ← FUNCIONALIDADE NOVA
+    "last_fight_1", "last_fight_2", "last_fight_3", "last_fight_4", "last_fight_5", # ← NOVAS VARIÁVEIS
 ]
 
 # FUNCIONALIDADE NOVA -> CÁLCULO DE SEQUÊNCIA DE VITÓRIAS/DERROTAS
