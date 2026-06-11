@@ -81,10 +81,10 @@ def prob_bar_table(name_a, prob_a, name_b, prob_b):
     return t
 
 def conf_color(conf_pct):
-    if conf_pct < 10: return "#888888"
-    if conf_pct < 20: return "#E6A817"
-    if conf_pct < 35: return "#E07B1A"
-    return "#C8102E"
+    if conf_pct < 10: return "#888888" # Cinza (Incerta)
+    if conf_pct < 20: return "#E6A817" # Amarelo (Moderada)
+    if conf_pct < 30: return "#E07B1A" # Laranja (Alta)
+    return "#C8102E"               # Vermelho (Muito Alta)
 
 # ── Função para gerar os relatórios dinamicamente ─────────────
 def gerar_relatorio(evento_nome, considerar_idade=True):

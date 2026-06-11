@@ -236,8 +236,7 @@ def main():
     print(classification_report(all_labels_met, all_preds_met, target_names=["Decisão", "Nocaute", "Finalização"]))
 
     print("\n 📈 CONFIANÇA VS ACURÁCIA (Probabilidade do Vencedor):")
-    n_total = len(all_probs_win)
-    for thr in [0.50, 0.55, 0.60, 0.65, 0.70]:
+    for thr in [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]:
         mask = np.abs(all_probs_win - 0.5) >= (thr - 0.5)
         n_m = mask.sum()
         if n_m == 0:

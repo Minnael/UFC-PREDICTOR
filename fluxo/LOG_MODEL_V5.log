@@ -1,0 +1,96 @@
+(scraping-maluco) PS C:\Users\minna\Music\scraping-maluco\model> python .\train_v5.py                                                                                                                    
+Lutas originais     : 6421
+Estreantes removidos: 952
+Lutas após filtro   : 5469
+
+Distribuição do método:
+  Decisão     : 2758 (50.4%)
+  Nocaute     : 1756 (32.1%)
+  Finalização :  955 (17.5%)
+
+Streaks calculados:
+  win_streak  — max: 14  média: 0.94
+  loss_streak — max:  7  média: 0.59
+
+Split temporal:
+  Treino : 4375 lutas  [2012-12-15 → 2024-02-10]
+  Val    :  546 lutas  [2024-02-10 → 2025-03-22]
+  Teste  :  548 lutas  [2025-03-22 → 2026-05-16]
+  ✅ Sem sobreposição de datas entre splits
+
+Features por amostra : 111
+Amostras treino (aug): 8750
+Amostras val    (aug): 1092
+Amostras teste  (aug): 1096
+  ✅ Zero NaNs em todos os splits
+
+Device: cpu
+
+Class weights para método:
+  Decisão     : 0.562  (n=4356)
+  Nocaute     : 0.861  (n=2842)
+  Finalização : 1.577  (n=1552)
+
+  Ep     Train       Val     AccW     AccM    wMet
+────────────────────────────────────────────────────
+   1    0.7895    1.1318   50.2%   46.3%  0.062
+  20    0.9750    1.0815   61.4%   47.2%  0.283
+  40    1.0764    1.0727   61.6%   46.1%  0.400
+  60    1.0656    1.0697   61.5%   45.5%  0.400
+  80    1.0577    1.0684   61.5%   45.6%  0.400
+ 100    1.0502    1.0667   60.8%   47.0%  0.400
+ 120    1.0354    1.0687   61.0%   47.7%  0.400
+ 140    1.0290    1.0680   60.9%   47.0%  0.400
+
+  Early stopping na época 140 (melhor val_loss: 1.0667)
+
+Calibrando temperatura com conjunto de validação...
+  Temperatura calibrada: 1.4897
+
+══════════════════════════════════════════════════════════════
+  📊 AVALIAÇÃO FINAL — Conjunto de TESTE (nunca visto antes)
+══════════════════════════════════════════════════════════════
+  Lutas no teste  : 548 (1096 c/ augmentação)
+  Período         : 2025-03-22 → 2026-05-16
+
+  🥊 CABEÇA 1: VENCEDOR
+  Acurácia   : 0.6250  (62.5%)
+  ROC-AUC    : 0.6748
+  Log-Loss   : 0.6500
+  Brier Score: 0.2290  (0=perfeito, 0.25=aleatório)
+
+              precision    recall  f1-score   support
+
+     B vence       0.62      0.64      0.63       548
+     A vence       0.63      0.61      0.62       548
+
+    accuracy                           0.62      1096
+   macro avg       0.63      0.62      0.62      1096
+weighted avg       0.63      0.62      0.62      1096
+
+  🎯 CABEÇA 2: MÉTODO DE VITÓRIA
+  Acurácia   : 0.4717  (47.2%)
+
+              precision    recall  f1-score   support
+
+     Decisão       0.59      0.52      0.56       556
+     Nocaute       0.48      0.43      0.45       354
+ Finalização       0.26      0.40      0.31       186
+
+    accuracy                           0.47      1096
+   macro avg       0.44      0.45      0.44      1096
+weighted avg       0.50      0.47      0.48      1096
+
+  📈 CONFIANÇA VS ACURÁCIA (Vencedor):
+    |P−0.5| ≥ 0.00  →  1096 amostras  acc=62.5%  [IC95%: 59.6%–65.3%]
+    |P−0.5| ≥ 0.05  →   750 amostras  acc=66.3%  [IC95%: 62.8%–69.6%]
+    |P−0.5| ≥ 0.10  →   424 amostras  acc=71.9%  [IC95%: 67.7%–76.2%]
+    |P−0.5| ≥ 0.15  →   195 amostras  acc=75.9%  [IC95%: 69.7%–81.5%]
+    |P−0.5| ≥ 0.20  →    85 amostras  acc=76.5%  [IC95%: 67.1%–84.7%]
+
+✅ Artefatos salvos em: artifacts/
+
+Gerando gráficos...
+  📈 Curvas salvas em: artifacts/training_curves.png
+  🔢 Matrizes salvas em: artifacts/
+(scraping-maluco) PS C:\Users\minna\Music\scraping-maluco\model> 
