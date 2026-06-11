@@ -24,7 +24,7 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-DATA_PATH  = "ufc_dataset_v3.csv" # Base nova com a coluna method_class
+DATA_PATH  = "ufc_dataset_v4.csv" # Base nova com a coluna method_class
 OUT_DIR    = "artifacts"
 os.makedirs(OUT_DIR, exist_ok=True)
 
