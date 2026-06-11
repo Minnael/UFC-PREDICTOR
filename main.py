@@ -80,6 +80,7 @@ def conf_color(conf_pct):
     if conf_pct < 35: return "#E07B1A"
     return "#C8102E"
 
+
 # ── Monta PDF ─────────────────────────────────────────────────
 doc = SimpleDocTemplate(
     "ufc_predictions.pdf",
@@ -125,5 +126,15 @@ story.append(Paragraph(
     ParagraphStyle("footer", fontSize=7, textColor=colors.HexColor("#AAAAAA"), alignment=TA_CENTER)
 ))
 
-doc.build(story)
+def add_metadata(canvas, doc):
+    canvas.setAuthor("Minnael Campelo")
+    canvas.setTitle("UFC FREEDOM -> SEM IDADE")
+    canvas.setSubject("Previsões de lutas do UFC")
+    canvas.setCreator("UFC Fight Predictor")
+
+doc.build(
+    story,
+    onFirstPage=add_metadata,
+    onLaterPages=add_metadata
+)
 print("PDF salvo em ufc_predictions.pdf")

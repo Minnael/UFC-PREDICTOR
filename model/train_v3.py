@@ -18,6 +18,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from torch.utils.data import DataLoader, TensorDataset
+from scipy.stats import binom
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
     accuracy_score, roc_auc_score, log_loss, brier_score_loss,
@@ -41,7 +42,63 @@ NUMERIC_BASE = [
     "sig_strikes_hit_total", "td_hit_total", "sub_att_total", "kd_total",
     "sig_strikes_per_min", "td_per_15min", "sub_per_15min",
     "avg_fight_time_sec",
+    "win_streak", "loss_streak",   # ← FUNCIONALIDADE NOVA
 ]
+
+# FUNCIONALIDADE NOVA -> CÁLCULO DE SEQUÊNCIA DE VITÓRIAS/DERROTAS
+def compute_streaks(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calcula win_streak e loss_streak para cada lutador antes de cada luta.
+    Processa em ordem cronológica — sem data leakage.
+    """
+    def _streak(history: list) -> tuple[int, int]:
+        """Retorna (win_streak, loss_streak) com base no histórico anterior."""
+        if not history:
+            return 0, 0
+        win_streak = loss_streak = 0
+        if history[-1]:   # última luta foi vitória
+            for won in reversed(history):
+                if won: win_streak += 1
+                else: break
+        else:             # última luta foi derrota
+            for won in reversed(history):
+                if not won: loss_streak += 1
+                else: break
+        return win_streak, loss_streak
+
+    # df já chega ordenado por event_date (garantido por load_and_clean)
+    fighter_history: dict[str, list[bool]] = {}
+    rows = {"a_win_streak": [], "a_loss_streak": [],
+            "b_win_streak": [], "b_loss_streak": []}
+
+    for _, row in df.iterrows():
+        fa, fb = row["fighter_a"], row["fighter_b"]
+
+        wa, la = _streak(fighter_history.get(fa, []))
+        wb, lb = _streak(fighter_history.get(fb, []))
+
+        rows["a_win_streak"].append(wa)
+        rows["a_loss_streak"].append(la)
+        rows["b_win_streak"].append(wb)
+        rows["b_loss_streak"].append(lb)
+
+        # Atualiza histórico COM o resultado desta luta
+        a_won = bool(row["label"])
+        fighter_history.setdefault(fa, []).append(a_won)
+        fighter_history.setdefault(fb, []).append(not a_won)
+
+    df = df.copy()
+    for col, vals in rows.items():
+        df[col] = vals
+
+    # Diagnóstico rápido
+    print(f"\nStreak calculado:")
+    print(f"  win_streak  — max: {df['a_win_streak'].max()}  "
+          f"média: {df['a_win_streak'].mean():.2f}")
+    print(f"  loss_streak — max: {df['a_loss_streak'].max()}  "
+          f"média: {df['a_loss_streak'].mean():.2f}")
+
+    return df
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -348,6 +405,7 @@ def save_plots(history: dict, te_trues, te_preds, out_dir: str):
 def main():
     # ── Dados e split ────────────────────────────────────────────────────────
     df = load_and_clean(DATA_PATH)
+    df = compute_streaks(df)          # ← FUNCIONALIDADE NOVA
     df_train, df_val, df_test = temporal_split(df)
 
     # ── Features ─────────────────────────────────────────────────────────────
@@ -438,9 +496,9 @@ def main():
     ll  = log_loss(te_trues, te_probs)
     bs  = brier_score_loss(te_trues, te_probs)
 
-    print("\n" + "═" * 58)
+    print("\n" + "═" * 62)
     print("  📊 AVALIAÇÃO FINAL — Conjunto de TESTE (nunca visto antes)")
-    print("═" * 58)
+    print("═" * 62)
     print(f"  Lutas no teste  : {len(df_test)} ({len(X_te)} c/ augmentação)")
     print(f"  Período         : {df_test['event_date'].min().date()} → {df_test['event_date'].max().date()}")
     print(f"  Acurácia        : {acc:.4f}  ({acc*100:.1f}%)")
@@ -453,11 +511,21 @@ def main():
 
     print("  Confiança vs Acurácia:")
     for thr in [0.50, 0.55, 0.60, 0.65, 0.70]:
-        mask  = (te_probs >= thr) | (te_probs <= 1 - thr)
-        n_m   = mask.sum()
-        if n_m == 0: continue
-        acc_t = ((te_probs[mask] >= 0.5) == te_trues[mask].astype(bool)).mean()
-        print(f"    |P − 0.5| ≥ {thr-0.5:.2f}  →  {n_m:>4} amostras  acc={acc_t:.1%}")
+        mask = (te_probs >= thr) | (te_probs <= 1 - thr)
+        n_m  = mask.sum()
+        if n_m == 0:
+            print(f"    |P − 0.5| ≥ {thr-0.5:.2f}  →     0 amostras  (modelo nunca atinge essa confiança)")
+            break  
+
+        correct = ((te_probs[mask] >= 0.5) == te_trues[mask].astype(bool)).sum()
+        acc_t   = correct / n_m
+
+        ci_lo = binom.interval(0.95, n_m, acc_t)[0] / n_m
+        ci_hi = binom.interval(0.95, n_m, acc_t)[1] / n_m
+
+        flag = "  ⚠️  (n pequeno)" if n_m < 50 else ""
+        print(f"    |P − 0.5| ≥ {thr-0.5:.2f}  →  {n_m:>4} amostras  "
+            f"acc={acc_t:.1%}  [IC95%: {ci_lo:.1%}–{ci_hi:.1%}]{flag}")
 
     # ── Salvar artefatos ─────────────────────────────────────────────────────
     with open(f"{OUT_DIR}/scaler.pkl", "wb") as f:

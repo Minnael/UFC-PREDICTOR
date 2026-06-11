@@ -1,17 +1,17 @@
-(scraping-maluco) PS C:\Users\minna\Desktop\MMA\scraping-maluco\model> python .\train_v3.py
-Lutas originais   : 6433
-Estreantes removidos: 952
-Lutas após filtro  : 5481
+(scraping-maluco) PS C:\Users\minna\Music\scraping-maluco\model> python .\train_v3.py
+Lutas originais   : 6445
+Estreantes removidos: 955
+Lutas após filtro  : 5490
 
 Split temporal:
-  Treino : 4384 lutas  [2012-12-15 → 2024-02-17]
-  Val    :  548 lutas  [2024-02-17 → 2025-03-29]
-  Teste  :  549 lutas  [2025-03-29 → 2026-06-06]
+  Treino : 4392 lutas  [2012-12-15 → 2024-02-24]
+  Val    :  549 lutas  [2024-02-24 → 2025-04-05]
+  Teste  :  549 lutas  [2025-04-05 → 2026-06-06]
   ✅ Sem sobreposição de datas entre splits
 
 Features por amostra: 90
-Amostras treino (c/ augment): 8768
-Amostras val    (c/ augment): 1096
+Amostras treino (c/ augment): 8784
+Amostras val    (c/ augment): 1098
 Amostras teste  (c/ augment): 1098
   ✅ Zero NaNs em todos os splits
 
@@ -19,44 +19,45 @@ Device: cpu
 
   Ep     Train       Val   Val Acc
 ──────────────────────────────────────
-   1    0.7425    0.6942    50.3%
-  20    0.6765    0.6578    62.6%
-  40    0.6667    0.6557    62.9%
-  60    0.6560    0.6567    62.0%
+   1    0.7400    0.6966    50.9%
+  20    0.6763    0.6597    61.7%
+  40    0.6664    0.6579    61.7%
+  60    0.6562    0.6580    60.7%
 
-  Early stopping na época 78 (melhor val_loss: 0.6549)
+  Early stopping na época 69 (melhor val_loss: 0.6567)
 
 Calibrando temperatura com conjunto de validação...
-  Temperatura calibrada: 1.4887
+  Temperatura calibrada: 1.4891
 
-══════════════════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
   📊 AVALIAÇÃO FINAL — Conjunto de TESTE (nunca visto antes)
-══════════════════════════════════════════════════════════
+══════════════════════════════════════════════════════════════
   Lutas no teste  : 549 (1098 c/ augmentação)
-  Período         : 2025-03-29 → 2026-06-06
-  Acurácia        : 0.6539  (65.4%)
-  ROC-AUC         : 0.6980
-  Log-Loss        : 0.6475
-  Brier Score     : 0.2277  (0=perfeito, 0.25=aleatório)
+  Período         : 2025-04-05 → 2026-06-06
+  Acurácia        : 0.6448  (64.5%)
+  ROC-AUC         : 0.6933
+  Log-Loss        : 0.6498
+  Brier Score     : 0.2288  (0=perfeito, 0.25=aleatório)
 
               precision    recall  f1-score   support
 
-     B vence       0.66      0.63      0.64       549
-     A vence       0.65      0.68      0.66       549
+     B vence       0.65      0.62      0.63       549
+     A vence       0.64      0.67      0.65       549
 
-    accuracy                           0.65      1098
-   macro avg       0.65      0.65      0.65      1098
-weighted avg       0.65      0.65      0.65      1098
+    accuracy                           0.64      1098
+   macro avg       0.65      0.64      0.64      1098
+weighted avg       0.65      0.64      0.64      1098
 
   Confiança vs Acurácia:
-    |P − 0.5| ≥ 0.00  →  1098 amostras  acc=65.4%
-    |P − 0.5| ≥ 0.05  →   647 amostras  acc=70.9%
-    |P − 0.5| ≥ 0.10  →   303 amostras  acc=74.9%
-    |P − 0.5| ≥ 0.15  →   117 amostras  acc=77.8%
-    |P − 0.5| ≥ 0.20  →    32 amostras  acc=78.1%
+    |P − 0.5| ≥ 0.00  →  1098 amostras  acc=64.5%  [IC95%: 61.7%–67.3%]
+    |P − 0.5| ≥ 0.05  →   633 amostras  acc=70.1%  [IC95%: 66.5%–73.6%]
+    |P − 0.5| ≥ 0.10  →   282 amostras  acc=77.3%  [IC95%: 72.3%–82.3%]
+    |P − 0.5| ≥ 0.15  →   102 amostras  acc=80.4%  [IC95%: 72.5%–88.2%]
+    |P − 0.5| ≥ 0.20  →    29 amostras  acc=75.9%  [IC95%: 58.6%–89.7%]  ⚠️  (n pequeno)
 
 ✅ Artefatos salvos em: artifacts
 
 Gerando gráficos...
   📈 Curvas salvas em: artifacts/training_curves.png
   🔢 Matriz salva em:  artifacts/confusion_matrix.png
+(scraping-maluco) PS C:\Users\minna\Music\scraping-maluco\model> 

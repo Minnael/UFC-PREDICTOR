@@ -18,6 +18,7 @@ NUMERIC_BASE = [
     "sig_strikes_hit_total", "td_hit_total", "sub_att_total", "kd_total",
     "sig_strikes_per_min", "td_per_15min", "sub_per_15min",
     "avg_fight_time_sec",
+    "win_streak", "loss_streak",   # ← FUNCIONALIDADE NOVA
 ]
 
 
