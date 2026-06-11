@@ -1,11 +1,10 @@
 """
 UFC Fight Predictor — predict.py
 =================================
-Carrega os artefatos treinados e realiza predições para novas lutas.
-Não modifique este arquivo.
+Carrega os artefatos Multi-Task e realiza predições completas para novas lutas.
 """
 
-import json, pickle
+import pickle
 import numpy as np
 import torch
 import torch.nn as nn
@@ -21,125 +20,79 @@ NUMERIC_BASE = [
     "last_fight_1", "last_fight_2", "last_fight_3", "last_fight_4", "last_fight_5",
 ]
 
-
-# ── Arquitetura (idêntica ao train_v3.py) ─────────────────────────────────────
-
-class FightMLP(nn.Module):
+class MultiTaskFightMLP(nn.Module):
     def __init__(self, n_in: int):
         super().__init__()
-        self.net = nn.Sequential(
+        self.shared = nn.Sequential(
             nn.Linear(n_in, 512), nn.BatchNorm1d(512), nn.GELU(), nn.Dropout(0.40),
-            nn.Linear(512, 256),  nn.BatchNorm1d(256), nn.GELU(), nn.Dropout(0.35),
-            nn.Linear(256, 128),  nn.BatchNorm1d(128), nn.GELU(), nn.Dropout(0.25),
-            nn.Linear(128, 64),   nn.BatchNorm1d(64),  nn.GELU(), nn.Dropout(0.15),
-            nn.Linear(64, 2),
+            nn.Linear(512, 256),  nn.BatchNorm1d(256), nn.GELU(), nn.Dropout(0.30),
+            nn.Linear(256, 128),  nn.BatchNorm1d(128), nn.GELU(), nn.Dropout(0.20),
+        )
+        self.head_winner = nn.Sequential(
+            nn.Linear(128, 64), nn.BatchNorm1d(64), nn.GELU(), nn.Dropout(0.15),
+            nn.Linear(64, 1)
+        )
+        self.head_method = nn.Sequential(
+            nn.Linear(128, 64), nn.BatchNorm1d(64), nn.GELU(), nn.Dropout(0.15),
+            nn.Linear(64, 3)
         )
 
     def forward(self, x):
-        return self.net(x)
-
-
-class TemperatureScaler(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.temperature = nn.Parameter(torch.ones(1) * 1.5)
-
-    def forward(self, logits):
-        return logits / self.temperature
-
-
-# ── Feature engineering (idêntico ao train_v3.py) ────────────────────────────
-
-def _derived(stats: dict) -> list:
-    wins  = float(stats.get("wins",   0) or 0)
-    total = float(stats.get("total_fights", 0) or 0)
-    ko    = float(stats.get("wins_ko",  0) or 0)
-    sub   = float(stats.get("wins_sub", 0) or 0)
-    dec   = float(stats.get("wins_dec", 0) or 0)
-    losses= float(stats.get("losses",   0) or 0)
-    td_15 = float(stats.get("td_per_15min",  0) or 0)
-    sub_15= float(stats.get("sub_per_15min", 0) or 0)
-    return [
-        wins / total        if total > 0 else 0.5,
-        (ko + sub) / wins   if wins  > 0 else 0.0,
-        ko  / wins          if wins  > 0 else 0.0,
-        sub / wins          if wins  > 0 else 0.0,
-        dec / wins          if wins  > 0 else 0.0,
-        losses / total      if total > 0 else 0.5,
-        float(np.log1p(total)),
-        td_15 + sub_15 * 0.5,
-    ]
-
-
-def _build_features(stats_a: dict, stats_b: dict) -> np.ndarray:
-    feats = []
-    for col in NUMERIC_BASE:
-        va = float(stats_a.get(col, 0) or 0)
-        vb = float(stats_b.get(col, 0) or 0)
-        feats.append(va - vb)
-    for stats in (stats_a, stats_b):
-        for col in NUMERIC_BASE:
-            feats.append(float(stats.get(col, 0) or 0))
-    da = _derived(stats_a)
-    db = _derived(stats_b)
-    feats.extend(da)
-    feats.extend(db)
-    feats.extend([a - b for a, b in zip(da, db)])
-    for stats in (stats_a, stats_b):
-        idx = STANCE_MAP.get(str(stats.get("stance", "Orthodox")), 0)
-        ohe = [0.0, 0.0, 0.0]
-        ohe[idx] = 1.0
-        feats.extend(ohe)
-    sa = STANCE_MAP.get(str(stats_a.get("stance", "Orthodox")), 0)
-    sb = STANCE_MAP.get(str(stats_b.get("stance", "Orthodox")), 0)
-    feats.append(float(sa != sb))
-    feats.append(float(sa == 1))
-    feats.append(float(sb == 1))
-    return np.array(feats, dtype=np.float32)
-
-
-# ── Predictor ─────────────────────────────────────────────────────────────────
+        features = self.shared(x)
+        win_logits = self.head_winner(features)
+        met_logits = self.head_method(features)
+        return win_logits, met_logits
 
 class FightPredictor:
-    def __init__(self, artifacts_dir: str = "artifacts"):
-        self.device = torch.device("cpu")
-
-        with open(f"{artifacts_dir}/meta.json") as f:
-            meta = json.load(f)
-
-        self.col_medians = np.load(f"{artifacts_dir}/col_medians.npy")
-
+    def __init__(self, artifacts_dir: str):
         with open(f"{artifacts_dir}/scaler.pkl", "rb") as f:
             self.scaler = pickle.load(f)
-
-        self.model = FightMLP(meta["n_features"]).to(self.device)
-        self.model.load_state_dict(
-            torch.load(f"{artifacts_dir}/best_model.pt", map_location=self.device)
-        )
+        self.col_medians = np.load(f"{artifacts_dir}/col_medians.npy")
+        
+        n_features = len(self.col_medians)
+        self.model = MultiTaskFightMLP(n_features)
+        
+        model_path = f"{artifacts_dir}/best_model.pth"
+        self.model.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
         self.model.eval()
 
-        self.ts = TemperatureScaler().to(self.device)
-        self.ts.load_state_dict(
-            torch.load(f"{artifacts_dir}/temperature.pt", map_location=self.device)
-        )
+    def _prepare_vector(self, fa: dict, fb: dict) -> np.ndarray:
+        vec_a = [fa.get(c, -1.0) for c in NUMERIC_BASE]
+        vec_b = [fb.get(c, -1.0) for c in NUMERIC_BASE]
+        
+        st_a = STANCE_MAP.get(fa.get("stance", ""), -1)
+        st_b = STANCE_MAP.get(fb.get("stance", ""), -1)
+        
+        vec = np.array(vec_a + [st_a] + vec_b + [st_b], dtype=np.float32).reshape(1, -1)
+        vec[np.isnan(vec)] = np.take(self.col_medians, np.where(np.isnan(vec))[1])
+        return self.scaler.transform(vec)
 
-    def predict(self, fighter_a: dict, fighter_b: dict,
-                name_a: str = "Fighter A", name_b: str = "Fighter B") -> dict:
-        x = _build_features(fighter_a, fighter_b)
-        x = np.where(np.isfinite(x), x, np.nan)
-        nan_idx = np.where(np.isnan(x))[0]
-        for i in nan_idx:
-            x[i] = self.col_medians[i] if i < len(self.col_medians) else 0.0
+    def predict(self, fighter_a: dict, fighter_b: dict, name_a="Fighter A", name_b="Fighter B") -> dict:
+        vec_ab = self._prepare_vector(fighter_a, fighter_b)
+        vec_ba = self._prepare_vector(fighter_b, fighter_a)
 
-        x_scaled = self.scaler.transform(x.reshape(1, -1))
-        tensor   = torch.FloatTensor(x_scaled).to(self.device)
+        tensor_ab = torch.FloatTensor(vec_ab)
+        tensor_ba = torch.FloatTensor(vec_ba)
 
         with torch.no_grad():
-            logits = self.ts(self.model(tensor))
-            probs  = torch.softmax(logits, dim=1)[0]
+            win_logits_ab, met_logits_ab = self.model(tensor_ab)
+            win_logits_ba, met_logits_ba = self.model(tensor_ba)
 
-        prob_a = float(probs[1])
-        prob_b = float(probs[0])
+            # 1. Resolver o Vencedor (Subtração Simétrica)
+            win_logit_final = (win_logits_ab - win_logits_ba) / 2.0
+            prob_a = torch.sigmoid(win_logit_final).item()
+            prob_b = 1.0 - prob_a
+
+            # 2. Resolver o Método (Soma Simétrica, pois o método é o mesmo independente da perspectiva)
+            met_logits_final = (met_logits_ab + met_logits_ba) / 2.0
+            met_probs = torch.softmax(met_logits_final, dim=1)[0].numpy()
+            
+            # As ordens das classes foram definidas no preparar_metodos.py:
+            # 0 = Decisão, 1 = Nocaute, 2 = Finalização
+            prob_dec = float(met_probs[0])
+            prob_ko  = float(met_probs[1])
+            prob_sub = float(met_probs[2])
+
         confidence = abs(prob_a - 0.5) * 2
 
         if confidence < 0.10:   conf_label = "⚪ Incerta (toss-up)"
@@ -155,21 +108,9 @@ class FightPredictor:
             "favorite":   name_a if prob_a > prob_b else name_b,
             "confidence": round(confidence * 100, 1),
             "conf_label": conf_label,
+            "method_probs": {
+                "Decisão": round(prob_dec * 100, 1),
+                "Nocaute": round(prob_ko * 100, 1),
+                "Finalização": round(prob_sub * 100, 1)
+            }
         }
-
-    def print_prediction(self, result: dict):
-        pa, pb   = result["prob_a"], result["prob_b"]
-        na, nb   = result["fighter_a"], result["fighter_b"]
-        bar_a    = "█" * int(pa / 2)
-        bar_b    = "█" * int(pb / 2)
-        print("\n" + "═" * 58)
-        print("  🥊  UFC FIGHT PREDICTOR")
-        print("═" * 58)
-        print(f"  {na} vs {nb}")
-        print("─" * 58)
-        print(f"  {na:<26} {pa:>5.1f}%  {bar_a}")
-        print(f"  {nb:<26} {pb:>5.1f}%  {bar_b}")
-        print("─" * 58)
-        print(f"  Favorito  : {result['favorite']}")
-        print(f"  Confiança : {result['conf_label']}  ({result['confidence']:.1f}%)")
-        print("═" * 58)

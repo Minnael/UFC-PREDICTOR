@@ -44,6 +44,11 @@ s_favorite = ParagraphStyle("favorite",
 s_conf = ParagraphStyle("conf",
     fontSize=9, fontName="Helvetica",
     textColor=colors.HexColor("#555555"),
+    alignment=TA_CENTER, spaceAfter=4)
+
+s_method = ParagraphStyle("method",
+    fontSize=8.5, fontName="Helvetica-Oblique",
+    textColor=colors.HexColor("#444444"),
     alignment=TA_CENTER, spaceAfter=16)
 
 # ── Helper: barra de probabilidade ────────────────────────────
@@ -100,7 +105,6 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
     if considerar_idade:
         story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", s_subtitle))
     else:
-        # Destaca visualmente que é um relatório simulado
         aviso_idade = ParagraphStyle("aviso", parent=s_subtitle, textColor=colors.HexColor("#E07B1A"))
         story.append(Paragraph(f"Simulação What-If: Ignorando a Vantagem de Idade<br/>Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", aviso_idade))
         
@@ -110,26 +114,30 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
         nomes = list(fight.keys())
         nome_a, nome_b = nomes[0], nomes[1]
         
-        # Faz uma cópia profunda (deepcopy) para não alterar o dicionário original
         stats_a = copy.deepcopy(fight[nome_a])
         stats_b = copy.deepcopy(fight[nome_b])
 
-        # MÁGICA: Se não for para considerar idade, igualamos a idade dos dois (usando a média entre eles)
+        # Cenário hipotético: iguala as idades se a flag for False
         if not considerar_idade:
             if "age" in stats_a and "age" in stats_b:
                 idade_media = (stats_a["age"] + stats_b["age"]) / 2.0
                 stats_a["age"] = idade_media
                 stats_b["age"] = idade_media
 
-        # Previsão
+        # Executa a predição multitarefa
         result = predictor.predict(stats_a, stats_b, name_a=nome_a, name_b=nome_b)
         prob_a = result["prob_a"]
         prob_b = result["prob_b"]
         conf   = result["confidence"]
         fav    = result["favorite"]
         clabel = result["conf_label"].split(" ", 1)[-1].strip()
+        
+        # Coleta das novas probabilidades de método de vitória
+        metodos = result["method_probs"]
+        txt_metodo = (f"<b>Método Estimado:</b> Nocaute/TKO ({metodos['Nocaute']}%)  |  "
+                      f"Finalização ({metodos['Finalização']}%)  |  Decisão ({metodos['Decisão']}%)")
 
-        # Montagem do bloco da luta
+        # Estrutura visual da luta no PDF
         story.append(Paragraph(f"LUTA {i} DE {len(fights)}", s_fight_num))
         story.append(Paragraph(f"{nome_a}  vs  {nome_b}", s_vs))
         story.append(prob_bar_table(nome_a, prob_a, nome_b, prob_b))
@@ -137,15 +145,16 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
 
         cc = conf_color(conf)
         story.append(Paragraph(f'Favorito: <font color="{cc}"><b>{fav}</b></font>', s_favorite))
-        story.append(Paragraph(f"Confianca: {clabel} ({conf:.1f}%)", s_conf))
+        story.append(Paragraph(f"Confiança: {clabel} ({conf:.1f}%)", s_conf))
+        story.append(Paragraph(txt_metodo, s_method))
 
         if i < len(fights):
             story.append(HRFlowable(width="100%", thickness=0.5,
                                     color=colors.HexColor("#DDDDDD"), spaceAfter=14))
 
-    # Rodapé
+    # Rodapé institucional
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#C8102E"), spaceBefore=10))
-    msg_rodape = "Modelo treinado com dados historicos do ufcstats.com — apenas para fins informativos."
+    msg_rodape = "Modelo treinado com dados históricos do ufcstats.com — apenas para fins informativos."
     if not considerar_idade:
          msg_rodape = "CENÁRIO HIPOTÉTICO: Idades de ambos os lutadores igualadas para remover viés de juventude. " + msg_rodape
          
@@ -166,9 +175,11 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
 # ── Execução ──────────────────────────────────────────────────
 evento_alvo = "UFC Freedom 250"
 
-print("Gerando relatórios...")
-# 1. Gera o PDF normal (com as idades reais)
+print("Gerando relatórios automatizados...")
+# 1. Relatório oficial considerando todas as variáveis físicas
 gerar_relatorio(evento_alvo, considerar_idade=True)
 
-# 2. Gera o PDF hipotético (onde ambos têm a mesma idade)
+# 2. Relatório simulado neutralizando a vantagem de idade
 gerar_relatorio(evento_alvo, considerar_idade=False)
+
+print("Processo finalizado com sucesso!")
