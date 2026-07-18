@@ -164,7 +164,7 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
     print(f"✅ PDF salvo: '{nome_arquivo}'")
 
 # ── Execução ──────────────────────────────────────────────────
-evento_alvo = "UFC Freedom 250"
+evento_alvo = "UFC Oklahoma City"
 
 print("Gerando relatórios...")
 # 1. Gera o PDF normal (com as idades reais)
