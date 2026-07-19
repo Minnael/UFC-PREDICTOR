@@ -22,7 +22,7 @@ NUMERIC_BASE = [
 ]
 
 
-# ── Arquitetura (idêntica ao train_v3.py) ─────────────────────────────────────
+# ── Arquitetura (idêntica ao train.py) ─────────────────────────────────────
 
 class FightMLP(nn.Module):
     def __init__(self, n_in: int):
@@ -48,7 +48,7 @@ class TemperatureScaler(nn.Module):
         return logits / self.temperature
 
 
-# ── Feature engineering (idêntico ao train_v3.py) ────────────────────────────
+# ── Feature engineering (idêntico ao train.py) ────────────────────────────
 
 def _derived(stats: dict) -> list:
     wins  = float(stats.get("wins",   0) or 0)

@@ -1,0 +1,46 @@
+{
+  "n_features": 105,
+  "numeric_base": [
+    "height_cm",
+    "weight_kg",
+    "reach_arm_cm",
+    "age",
+    "wins",
+    "losses",
+    "draws",
+    "wins_ko",
+    "wins_sub",
+    "wins_dec",
+    "total_fights",
+    "sig_strikes_hit_total",
+    "td_hit_total",
+    "sub_att_total",
+    "kd_total",
+    "sig_strikes_per_min",
+    "td_per_15min",
+    "sub_per_15min",
+    "avg_fight_time_sec",
+    "last_fight_1",
+    "last_fight_2",
+    "last_fight_3",
+    "last_fight_4",
+    "last_fight_5"
+  ],
+  "stance_map": {
+    "Orthodox": 0,
+    "Southpaw": 1,
+    "Switch": 2
+  },
+  "method_names": [
+    "KO/TKO",
+    "Submiss\u00e3o",
+    "Decis\u00e3o"
+  ],
+  "class_weights": [
+    1.0233590602874756,
+    1.874625563621521,
+    0.6714176535606384
+  ],
+  "test_acc": 0.47358834244080145,
+  "test_logloss": 1.0077818575301034
+}

@@ -1,4 +1,4 @@
-from model.predict import FightPredictor
+from model.predict_method import FullPredictor
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -13,7 +13,7 @@ from datetime import datetime
 with open("next_event_stats.json", encoding="utf-8") as f:
     fights = json.load(f)
 
-predictor = FightPredictor("model/artifacts")
+predictor = FullPredictor(win_artifacts="model/artifacts", method_artifacts="model/artifacts_method")
 
 # ── Estilos ───────────────────────────────────────────────────
 s_title = ParagraphStyle("title",
@@ -81,6 +81,27 @@ def conf_color(conf_pct):
     if conf_pct < 35: return "#E07B1A"
     return "#C8102E"
 
+def method_table(outcomes, name_a, name_b):
+    col_hdr = ParagraphStyle("ch", fontSize=8, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=colors.HexColor("#333333"))
+    col_txt = ParagraphStyle("ct", fontSize=8, fontName="Helvetica", alignment=TA_CENTER, textColor=colors.HexColor("#555555"))
+    
+    data = [
+        [Paragraph("Método", col_hdr), Paragraph(name_a, col_hdr), Paragraph(name_b, col_hdr)],
+        [Paragraph("KO/TKO", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — KO/TKO', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — KO/TKO', 0):.1f}%", col_txt)],
+        [Paragraph("Submissão", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — Submissão', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — Submissão', 0):.1f}%", col_txt)],
+        [Paragraph("Decisão", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — Decisão', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — Decisão', 0):.1f}%", col_txt)],
+    ]
+    t = Table(data, colWidths=[4*cm, 5*cm, 5*cm])
+    t.setStyle(TableStyle([
+        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F0F0F0")),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#DDDDDD")),
+        ("TOPPADDING", (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+    ]))
+    return t
+
 # ── Função para gerar os relatórios dinamicamente ─────────────
 def gerar_relatorio(evento_nome, considerar_idade=True):
     sufixo = "- Oficial" if considerar_idade else "- Sem Influencia Idade"
@@ -139,6 +160,10 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
         story.append(Paragraph(f'Favorito: <font color="{cc}"><b>{fav}</b></font>', s_favorite))
         story.append(Paragraph(f"Confianca: {clabel} ({conf:.1f}%)", s_conf))
 
+        story.append(Spacer(1, 8))
+        story.append(method_table(result["outcomes"], nome_a, nome_b))
+        story.append(Spacer(1, 14))
+
         if i < len(fights):
             story.append(HRFlowable(width="100%", thickness=0.5,
                                     color=colors.HexColor("#DDDDDD"), spaceAfter=14))
@@ -161,10 +186,10 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
         canvas.setCreator("UFC Fight Predictor")
 
     doc.build(story, onFirstPage=add_metadata, onLaterPages=add_metadata)
-    print(f"✅ PDF salvo: '{nome_arquivo}'")
+    print(f"PDF salvo: '{nome_arquivo}'")
 
 # ── Execução ──────────────────────────────────────────────────
-evento_alvo = "UFC Oklahoma City"
+evento_alvo = "UFC Freedom"
 
 print("Gerando relatórios...")
 # 1. Gera o PDF normal (com as idades reais)
