@@ -8,9 +8,70 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dateutil import parser as date_parser
 
 # Importamos as lógicas do scraper atual para não reescrever a roda
+from typing import Optional
 from ufc_scraper_global import (
-    _playwright_loop, _request_queue, get_fights_from_event, process_fight, DELAY, MAX_WORKERS
+    _playwright_loop, _request_queue, get_fights_from_event, DELAY, MAX_WORKERS,
+    _throttled_get, get_fight_details, get_fighter_profile, calc_stats
 )
+
+fighter_cache: dict[str, dict] = {}
+cache_lock = threading.Lock()
+
+def load_profile(url: str, name: str) -> Optional[dict]:
+    if not url: return None
+    with cache_lock:
+        if url in fighter_cache:
+            return fighter_cache[url]
+    log.info(f"    Perfil: {name}")
+    profile = get_fighter_profile(url)
+    with cache_lock:
+        fighter_cache.setdefault(url, profile)
+    return fighter_cache.get(url)
+
+def process_fight(fight: dict, event: dict) -> Optional[dict]:
+    soup_fight = _throttled_get(fight["fight_url"])
+    if not soup_fight: return None
+
+    details = get_fight_details(soup_fight)
+    if not details: return None
+
+    winner = details.get("winner", "")
+    if winner not in ("A", "B"):
+        log.info(f"    Pulando (NC/Draw): {fight['fight_url']}")
+        return None
+
+    url_a  = details.get("fighter_a_url", "")
+    url_b  = details.get("fighter_b_url", "")
+    name_a = details.get("fighter_a_name", "")
+    name_b = details.get("fighter_b_name", "")
+
+    with ThreadPoolExecutor(max_workers=2) as inner:
+        fut_a = inner.submit(load_profile, url_a, name_a)
+        fut_b = inner.submit(load_profile, url_b, name_b)
+        pa = fut_a.result()
+        pb = fut_b.result()
+
+    if not pa or not pb: return None
+
+    sa = calc_stats(pa, before=event["date"])
+    sb = calc_stats(pb, before=event["date"])
+
+    row = {
+        "event_name": event["name"],
+        "event_date": event["date"].date(),
+        "fighter_a":  name_a,
+        "fighter_b":  name_b,
+        "winner":     winner,
+        "label":      1 if winner == "A" else 0,
+        "method":     details.get("method", ""),
+        "round":      details.get("round"),
+        "time":       details.get("time", ""),
+    }
+    for k, v in sa.items(): row[f"a_{k}"] = v
+    for k, v in sb.items(): row[f"b_{k}"] = v
+
+    log.info(f"    ✓ {name_a} vs {name_b} → {winner}")
+    return row
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [WORKER] %(message)s")
 log = logging.getLogger(__name__)
