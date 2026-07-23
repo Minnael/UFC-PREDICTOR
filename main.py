@@ -2,9 +2,9 @@ from model.predict_method import FullPredictor
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import json
 import copy
 import os
@@ -35,17 +35,17 @@ s_fight_num = ParagraphStyle("fight_num",
 s_vs = ParagraphStyle("vs",
     fontSize=16, fontName="Helvetica-Bold",
     textColor=colors.HexColor("#1A1A1A"),
-    alignment=TA_CENTER, spaceAfter=6)
+    alignment=TA_CENTER, spaceAfter=8)
 
 s_favorite = ParagraphStyle("favorite",
     fontSize=10, fontName="Helvetica-Bold",
     textColor=colors.HexColor("#C8102E"),
-    alignment=TA_CENTER, spaceAfter=2)
+    alignment=TA_CENTER, spaceAfter=0)
 
 s_conf = ParagraphStyle("conf",
     fontSize=9, fontName="Helvetica",
     textColor=colors.HexColor("#555555"),
-    alignment=TA_CENTER, spaceAfter=16)
+    alignment=TA_CENTER, spaceAfter=6)
 
 # ── Helper: barra de probabilidade ────────────────────────────
 def prob_bar_table(name_a, prob_a, name_b, prob_b):
@@ -159,23 +159,40 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
         fav    = result["favorite"]
         clabel = result["conf_label"].split(" ", 1)[-1].strip()
 
-        # Montagem do bloco da luta
-        story.append(Paragraph(f"LUTA {i} DE {len(fights)}", s_fight_num))
-        story.append(Paragraph(f"{nome_a}  vs  {nome_b}", s_vs))
-        story.append(prob_bar_table(nome_a, prob_a, nome_b, prob_b))
-        story.append(Spacer(1, 8))
+        # Gera as tags visuais baseadas nas lutas reais
+        fights_a = int(float(stats_a.get("total_fights", 0) or 0))
+        fights_b = int(float(stats_b.get("total_fights", 0) or 0))
+        
+        tag_a = ""
+        if fights_a == 0: tag_a = "<font color='#FF0000'>(E) </font>"
+        elif fights_a <= 3: tag_a = f"<font color='#FF6600'>({fights_a}) </font>"
+            
+        tag_b = ""
+        if fights_b == 0: tag_b = "<font color='#FF0000'> (E)</font>"
+        elif fights_b <= 3: tag_b = f"<font color='#FF6600'> ({fights_b})</font>"
+
+        display_a = f"{tag_a}{nome_a}"
+        display_b = f"{nome_b}{tag_b}"
+
+        # Montagem do bloco da luta (agrupado com KeepTogether)
+        fight_elements = []
+        fight_elements.append(Paragraph(f"LUTA {i} DE {len(fights)}", s_fight_num))
+        fight_elements.append(Paragraph(f"{display_a}  vs  {display_b}", s_vs))
+        fight_elements.append(prob_bar_table(nome_a, prob_a, nome_b, prob_b))
 
         cc = conf_color(conf)
-        story.append(Paragraph(f'Favorito: <font color="{cc}"><b>{fav}</b></font>', s_favorite))
-        story.append(Paragraph(f"Confianca: {clabel} ({conf:.1f}%)", s_conf))
+        fight_elements.append(Paragraph(f'Favorito: <font color="{cc}"><b>{fav}</b></font>', s_favorite))
+        fight_elements.append(Paragraph(f"Confianca: {clabel} ({conf:.1f}%)", s_conf))
 
-        story.append(Spacer(1, 8))
-        story.append(method_table(result["outcomes"], nome_a, nome_b))
-        story.append(Spacer(1, 14))
+        fight_elements.append(Spacer(1, 4))
+        fight_elements.append(method_table(result["outcomes"], nome_a, nome_b))
+        fight_elements.append(Spacer(1, 8))
 
         if i < len(fights):
-            story.append(HRFlowable(width="100%", thickness=0.5,
-                                    color=colors.HexColor("#DDDDDD"), spaceAfter=14))
+            fight_elements.append(HRFlowable(width="100%", thickness=0.5,
+                                    color=colors.HexColor("#DDDDDD"), spaceAfter=8))
+                                    
+        story.append(KeepTogether(fight_elements))
 
     # Rodapé
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#C8102E"), spaceBefore=10))

@@ -6,7 +6,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(__file__))
 
 # Reutiliza o Playwright e as funções já prontas do scraper global
-from ufc_scraper_global import get, get_fighter_profile, calc_stats
+from global_local.ufc_scraper_global import get, get_fighter_profile, calc_stats
 
 # ============================================================
 # EVENTO A SER COLETADO

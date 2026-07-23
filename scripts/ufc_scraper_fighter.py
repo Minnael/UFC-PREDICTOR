@@ -121,15 +121,19 @@ def _parse_fight_history(soup: BeautifulSoup) -> list[dict]:
 
         kd_ps = p_texts(tds[2])
         kd = pf(kd_ps[0]) if kd_ps else None
+        kd_abs = pf(kd_ps[1]) if len(kd_ps) > 1 else None
 
         sig_ps = p_texts(tds[3])
         sig_hit = pf(sig_ps[0]) if sig_ps else None
+        sig_abs = pf(sig_ps[1]) if len(sig_ps) > 1 else None
 
         td_ps = p_texts(tds[4])
         td_hit = pf(td_ps[0]) if td_ps else None
+        td_abs = pf(td_ps[1]) if len(td_ps) > 1 else None
 
         sub_ps = p_texts(tds[5])
         sub_att_n = pf(sub_ps[0]) if sub_ps else None
+        sub_abs = pf(sub_ps[1]) if len(sub_ps) > 1 else None
 
         date = None
         date_ps = p_texts(tds[6])
@@ -161,6 +165,10 @@ def _parse_fight_history(soup: BeautifulSoup) -> list[dict]:
             "sig_strikes_hit": sig_hit,
             "td_hit":          td_hit,
             "sub_att":         sub_att_n,
+            "kd_absorbed":          kd_abs,
+            "sig_strikes_absorbed": sig_abs,
+            "td_absorbed":          td_abs,
+            "sub_absorbed":         sub_abs,
         })
 
     return sorted(history, key=lambda x: x["date"])
@@ -194,11 +202,16 @@ def calc_stats(profile: dict) -> dict:
     s["wins_ko"]     = sum(1 for f in wins if re.search(r"KO|TKO", f.get("method",""), re.I))
     s["wins_sub"]    = sum(1 for f in wins if re.search(r"Sub",    f.get("method",""), re.I))
     s["wins_dec"]    = sum(1 for f in wins if re.search(r"Dec",    f.get("method",""), re.I))
+    s["losses_ko"]   = sum(1 for f in losses if re.search(r"KO|TKO", f.get("method",""), re.I))
+    s["losses_sub"]  = sum(1 for f in losses if re.search(r"Sub",    f.get("method",""), re.I))
+    s["losses_dec"]  = sum(1 for f in losses if re.search(r"Dec",    f.get("method",""), re.I))
     s["total_fights"]= len(hist)
 
     NULLS = [
         "sig_strikes_hit_total", "td_hit_total", "sub_att_total", "kd_total",
-        "sig_strikes_per_min", "td_per_15min", "sub_per_15min", "avg_fight_time_sec"
+        "sig_strikes_per_min", "td_per_15min", "sub_per_15min", "avg_fight_time_sec",
+        "kd_absorbed_total", "sig_strikes_absorbed_total", "td_absorbed_total", "sub_absorbed_total",
+        "sig_strikes_absorbed_per_min", "td_absorbed_per_15min", "sub_absorbed_per_15min"
     ]
 
     if not hist:
@@ -213,6 +226,11 @@ def calc_stats(profile: dict) -> dict:
     sub   = sum(f["sub_att"]         or 0 for f in hist)
     kd    = sum(f["kd"]              or 0 for f in hist)
 
+    sig_a = sum(f.get("sig_strikes_absorbed") or 0 for f in hist)
+    td_a  = sum(f.get("td_absorbed")          or 0 for f in hist)
+    sub_a = sum(f.get("sub_absorbed")         or 0 for f in hist)
+    kd_a  = sum(f.get("kd_absorbed")          or 0 for f in hist)
+
     s["sig_strikes_hit_total"] = sig_h
     s["td_hit_total"]          = td_h
     s["sub_att_total"]         = sub
@@ -221,6 +239,14 @@ def calc_stats(profile: dict) -> dict:
     s["td_per_15min"]          = round(td_h/total_min*15, 3)
     s["sub_per_15min"]         = round(sub/total_min*15, 3)
     s["avg_fight_time_sec"]    = round(total_sec/len(hist), 1)
+
+    s["kd_absorbed_total"]            = kd_a
+    s["sig_strikes_absorbed_total"]   = sig_a
+    s["td_absorbed_total"]            = td_a
+    s["sub_absorbed_total"]           = sub_a
+    s["sig_strikes_absorbed_per_min"] = round(sig_a/total_min, 3)
+    s["td_absorbed_per_15min"]        = round(td_a/total_min*15, 3)
+    s["sub_absorbed_per_15min"]       = round(sub_a/total_min*15, 3)
 
     return s
 

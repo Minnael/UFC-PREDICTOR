@@ -4,7 +4,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(__file__))
 
 # Reutiliza o Playwright e as funções já prontas do scraper global
-from ufc_scraper_global import get, get_fighter_profile, calc_stats, parse_date
+from global_local.ufc_scraper_global import get, get_fighter_profile, calc_stats, parse_date
 
 # ── 1. Próximo evento ─────────────────────────────────────────
 soup = get("http://ufcstats.com/statistics/events/upcoming?page=all")
@@ -59,7 +59,7 @@ for i, f in enumerate(fights_list, 1):
     })
 
 # ── 5. Salva JSON ─────────────────────────────────────────────
-with open("../next_event_stats.json", "w", encoding="utf-8") as out:
+with open("./next_event_stats.json", "w", encoding="utf-8") as out:
     json.dump(fights_json, out, ensure_ascii=False, indent=2, default=str)
 
 print("\nSalvo em next_event_stats.json")

@@ -14,9 +14,12 @@ STANCE_MAP   = {"Orthodox": 0, "Southpaw": 1, "Switch": 2}
 NUMERIC_BASE = [
     "height_cm", "weight_kg", "reach_arm_cm", "age",
     "wins", "losses", "draws", "wins_ko", "wins_sub", "wins_dec",
+    "losses_ko", "losses_sub", "losses_dec",
     "total_fights",
     "sig_strikes_hit_total", "td_hit_total", "sub_att_total", "kd_total",
     "sig_strikes_per_min", "td_per_15min", "sub_per_15min",
+    "kd_absorbed_total", "sig_strikes_absorbed_total", "td_absorbed_total", "sub_absorbed_total",
+    "sig_strikes_absorbed_per_min", "td_absorbed_per_15min", "sub_absorbed_per_15min",
     "avg_fight_time_sec",
     "last_fight_1", "last_fight_2", "last_fight_3", "last_fight_4", "last_fight_5",
 ]
@@ -59,6 +62,8 @@ def _derived(stats: dict) -> list:
     losses= float(stats.get("losses",   0) or 0)
     td_15 = float(stats.get("td_per_15min",  0) or 0)
     sub_15= float(stats.get("sub_per_15min", 0) or 0)
+    l_ko  = float(stats.get("losses_ko",  0) or 0)
+    l_sub = float(stats.get("losses_sub", 0) or 0)
     return [
         wins / total        if total > 0 else 0.5,
         (ko + sub) / wins   if wins  > 0 else 0.0,
@@ -68,10 +73,49 @@ def _derived(stats: dict) -> list:
         losses / total      if total > 0 else 0.5,
         float(np.log1p(total)),
         td_15 + sub_15 * 0.5,
+        (l_ko + l_sub) / total  if total > 0 else 0.0,  # been_finished_rate
+        l_ko  / total           if total > 0 else 0.0,  # ko_vulnerability
+        l_sub / total           if total > 0 else 0.0,  # sub_vulnerability
     ]
 
 
+def _impute_debutant(stats: dict) -> dict:
+    if int(float(stats.get("total_fights", 0) or 0)) > 0:
+        return stats
+    
+    s = stats.copy()
+    s["total_fights"] = 3.0
+    s["wins"] = 1.5
+    s["losses"] = 1.5
+    s["wins_ko"] = 0.45
+    s["wins_sub"] = 0.30
+    s["wins_dec"] = 0.75
+    s["losses_ko"] = 0.45
+    s["losses_sub"] = 0.30
+    s["losses_dec"] = 0.75
+    s["sig_strikes_hit_total"] = 105.0
+    s["td_hit_total"] = 3.6
+    s["sub_att_total"] = 1.2
+    s["kd_total"] = 0.3
+    s["sig_strikes_per_min"] = 3.5
+    s["td_per_15min"] = 1.2
+    s["sub_per_15min"] = 0.4
+    
+    s["kd_absorbed_total"] = 0.3
+    s["sig_strikes_absorbed_total"] = 105.0
+    s["td_absorbed_total"] = 3.6
+    s["sub_absorbed_total"] = 1.2
+    s["sig_strikes_absorbed_per_min"] = 3.5
+    s["td_absorbed_per_15min"] = 1.2
+    s["sub_absorbed_per_15min"] = 0.4
+    
+    s["avg_fight_time_sec"] = 600.0
+    return s
+
+
 def _build_features(stats_a: dict, stats_b: dict) -> np.ndarray:
+    stats_a = _impute_debutant(stats_a)
+    stats_b = _impute_debutant(stats_b)
     feats = []
     for col in NUMERIC_BASE:
         va = float(stats_a.get(col, 0) or 0)

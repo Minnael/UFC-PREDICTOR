@@ -1,5 +1,5 @@
 {
-  "n_features": 105,
+  "n_features": 123,
   "numeric_base": [
     "height_cm",
     "weight_kg",
@@ -11,6 +11,9 @@
     "wins_ko",
     "wins_sub",
     "wins_dec",
+    "losses_ko",
+    "losses_sub",
+    "losses_dec",
     "total_fights",
     "sig_strikes_hit_total",
     "td_hit_total",
@@ -38,9 +41,9 @@
   ],
   "class_weights": [
     1.0233590602874756,
-    1.874625563621521,
-    0.6714176535606384
+    1.877035140991211,
+    0.6711090803146362
   ],
-  "test_acc": 0.47358834244080145,
-  "test_logloss": 1.0077818575301034
+  "test_acc": 0.5300546448087432,
+  "test_logloss": 0.9779387194749779
 }

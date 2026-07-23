@@ -38,9 +38,12 @@ STANCE_MAP   = {"Orthodox": 0, "Southpaw": 1, "Switch": 2}
 NUMERIC_BASE = [
     "height_cm", "weight_kg", "reach_arm_cm", "age",
     "wins", "losses", "draws", "wins_ko", "wins_sub", "wins_dec",
+    "losses_ko", "losses_sub", "losses_dec",
     "total_fights",
     "sig_strikes_hit_total", "td_hit_total", "sub_att_total", "kd_total",
     "sig_strikes_per_min", "td_per_15min", "sub_per_15min",
+    "kd_absorbed_total", "sig_strikes_absorbed_total", "td_absorbed_total", "sub_absorbed_total",
+    "sig_strikes_absorbed_per_min", "td_absorbed_per_15min", "sub_absorbed_per_15min",
     "avg_fight_time_sec",
     "last_fight_1", "last_fight_2", "last_fight_3", "last_fight_4", "last_fight_5", # ← NOVAS VARIÁVEIS
 ]
@@ -168,6 +171,8 @@ def _derived(stats: dict) -> list:
     losses= float(stats.get("losses",   0) or 0)
     td_15 = float(stats.get("td_per_15min",  0) or 0)
     sub_15= float(stats.get("sub_per_15min", 0) or 0)
+    l_ko  = float(stats.get("losses_ko",  0) or 0)
+    l_sub = float(stats.get("losses_sub", 0) or 0)
 
     return [
         wins / total        if total > 0 else 0.5,   # win_rate
@@ -178,6 +183,9 @@ def _derived(stats: dict) -> list:
         losses / total      if total > 0 else 0.5,   # loss_rate
         float(np.log1p(total)),                       # exp_score
         td_15 + sub_15 * 0.5,                         # grapple_score
+        (l_ko + l_sub) / total  if total > 0 else 0.0,  # been_finished_rate
+        l_ko  / total           if total > 0 else 0.0,  # ko_vulnerability
+        l_sub / total           if total > 0 else 0.0,  # sub_vulnerability
     ]
 
 
