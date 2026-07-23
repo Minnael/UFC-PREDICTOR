@@ -7,27 +7,6 @@ condicionado a "este lutador vence" (KO/TKO, Submissão, Decisão).
 Este script NÃO prevê quem vence — isso continua sendo feito pelo FightMLP
 já existente (train.py / artifacts/best_model.pt), que já foi testado e
 calibrado. Não tocamos nele.
-
-Design:
-  - Reaproveita a MESMA engenharia de features de train.py
-    (build_row_features, NUMERIC_BASE, STANCE_MAP, temporal_split) via
-    import direto — zero duplicação de lógica crítica, para não repetir o
-    tipo de drift que apareceu entre ufc_scraper_global.py e
-    ufc_scraper_fighter.py.
-  - Cada linha de treino é reorientada para que o VENCEDOR real fique
-    sempre no "slot A" das features (build_row_features(vencedor, perdedor)).
-  - SEM augmentação por espelhamento: o espelho de uma luta que A venceu
-    por KO não é um exemplo válido de "B venceu por KO" — não existe uma
-    transformação simétrica válida aqui como existe para vitória/derrota.
-    Consequência prática: dataset efetivo menor e SEM balanceamento
-    automático de classes -> usamos class_weight no CrossEntropyLoss.
-  - Salva artefatos em diretório PRÓPRIO (artifacts_method/), nunca em
-    artifacts/, para não sobrescrever o modelo de vitória já validado.
-
-Em inferência (predict_method.py), a probabilidade conjunta é reconstruída
-via probabilidade total:
-    P(A vence por KO) = P(A vence) × P(método=KO | A vence)
-reaproveitando o modelo de vitória já existente.
 """
 
 import os, re, json, pickle, warnings
@@ -53,7 +32,7 @@ torch.manual_seed(SEED)
 np.random.seed(SEED)
 
 DATA_PATH = "ufc_dataset.csv"
-OUT_DIR   = "artifacts_method"        # <- diretório próprio, não sobrescreve artifacts/
+OUT_DIR   = "artifacts_method"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 METHOD_NAMES = ["KO/TKO", "Submissão", "Decisão"]
@@ -61,9 +40,6 @@ METHOD_NAMES = ["KO/TKO", "Submissão", "Decisão"]
 
 # ══════════════════════════════════════════════════════════════════════════
 # 1. Categorização do método
-#    MESMO regex usado em calc_stats() (ufc_scraper_global.py) para
-#    wins_ko/wins_sub/wins_dec — mantém a definição de "método" consistente
-#    entre as features de histórico do lutador e o rótulo deste modelo.
 # ══════════════════════════════════════════════════════════════════════════
 
 def categorize_method(method_str) -> Optional[int]:
@@ -76,7 +52,7 @@ def categorize_method(method_str) -> Optional[int]:
         return 1
     if re.search(r"Dec", m, re.I):
         return 2
-    return None  # DQ, "Could Not Continue" etc. — descartado (raro)
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -115,7 +91,7 @@ def build_Xy_method(df: pd.DataFrame, col_medians=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# 3. Arquitetura — mesma "forma" do FightMLP, saída com 3 classes
+# 3. Arquitetura
 # ══════════════════════════════════════════════════════════════════════════
 
 class MethodMLP(nn.Module):
@@ -126,12 +102,11 @@ class MethodMLP(nn.Module):
             nn.Linear(512, 256),  nn.BatchNorm1d(256), nn.GELU(), nn.Dropout(0.35),
             nn.Linear(256, 128),  nn.BatchNorm1d(128), nn.GELU(), nn.Dropout(0.25),
             nn.Linear(128, 64),   nn.BatchNorm1d(64),  nn.GELU(), nn.Dropout(0.15),
-            nn.Linear(64, 3),      # <- 3 classes em vez de 2
+            nn.Linear(64, 3),
         )
 
     def forward(self, x):
         return self.net(x)
-
 
 class TemperatureScaler(nn.Module):
     def __init__(self):
@@ -144,9 +119,6 @@ class TemperatureScaler(nn.Module):
 
 # ══════════════════════════════════════════════════════════════════════════
 # 4. Avaliação multi-classe
-#    eval_model() de train.py assume binário (softmax[:, 1] fixo) —
-#    não dá para reaproveitar como está. Esta versão devolve o vetor de
-#    probabilidades completo (N, 3).
 # ══════════════════════════════════════════════════════════════════════════
 
 @torch.no_grad()
@@ -173,9 +145,6 @@ def eval_model_multiclass(model, loader, crit, device, ts=None):
 
 def main():
     df = load_and_clean(DATA_PATH)
-    # Sem compute_streaks aqui de propósito: win_streak/loss_streak não
-    # fazem parte de NUMERIC_BASE (ver revisão do bug de streak) — treinar
-    # sem essa coluna mantém este modelo consistente com o de vitória.
     df_train, df_val, df_test = temporal_split(df)
 
     print("\nConstruindo dataset de método (vencedor sempre no slot A)...")
@@ -188,8 +157,6 @@ def main():
         n_cls = int((y_tr == cls).sum())
         print(f"    Treino — {nome:<10}: {n_cls:>5}  ({n_cls/len(y_tr):.1%})")
 
-    # ── Pesos de classe (SEM augmentação por espelho aqui, então o
-    #    desbalanceamento natural das classes não é corrigido sozinho) ──────
     class_counts   = np.bincount(y_tr, minlength=3)
     class_weights  = class_counts.sum() / (3 * class_counts)
     class_weights  = torch.tensor(class_weights, dtype=torch.float32)
@@ -237,7 +204,6 @@ def main():
                 print(f"\n  Early stopping na época {ep} (melhor val_loss: {best_val:.4f})")
                 break
 
-    # ── Calibração de temperatura (idêntico ao fluxo de train.py) ────────
     model.load_state_dict(torch.load(f"{OUT_DIR}/best_model.pt", map_location=device))
     print("\nCalibrando temperatura com conjunto de validação...")
     ts = calibrate_temperature(model, val_loader, device)
@@ -248,8 +214,6 @@ def main():
         model, te_loader, criterion, device, ts=ts)
 
     acc = accuracy_score(te_trues, te_preds)
-    # labels=[0,1,2] explícito: garante que log_loss não quebra se por acaso
-    # alguma classe não aparecer na fatia de teste (possível com split temporal)
     ll = log_loss(te_trues, te_probs, labels=[0, 1, 2])
 
     print("\n" + "═" * 62)
@@ -261,7 +225,43 @@ def main():
     print()
     print(classification_report(te_trues, te_preds, target_names=METHOD_NAMES))
 
-    # ── Salvar artefatos (diretório próprio) ─────────────────────────────────
+    # ── NOVA FUNCIONALIDADE: Confiança vs Acurácia por Método ────────────────
+    from scipy.stats import binom
+    
+    print("  Confiança vs Acurácia (Por Método Previsto):")
+    for m_idx, m_name in enumerate(METHOD_NAMES):
+        print(f"\n  ➤ Quando o modelo aposta em: {m_name}")
+        
+        mask_m = (te_preds == m_idx)
+        
+        if mask_m.sum() == 0:
+            print("    Nenhuma previsão para este método no conjunto de teste.")
+            continue
+            
+        probs_m = te_probs[mask_m, m_idx]
+        trues_m = te_trues[mask_m]
+        
+        for thr in [0.20, 0.25, 0.30, 0.35, 0.40]:
+            mask_thr = probs_m >= thr
+            n_m = mask_thr.sum()
+            
+            if n_m == 0:
+                print(f"    Prob ≥ {thr:.2f}  →     0 amostras")
+                continue
+                
+            correct = (trues_m[mask_thr] == m_idx).sum()
+            acc_t = correct / n_m
+            
+            ci_lo = binom.interval(0.95, n_m, acc_t)[0] / n_m
+            ci_hi = binom.interval(0.95, n_m, acc_t)[1] / n_m
+            
+            flag = "  ⚠️  (n pequeno)" if n_m < 50 else ""
+            print(f"    Prob ≥ {thr:.2f}  →  {n_m:>4} amostras  "
+                  f"acc real={acc_t:.1%}  [IC95%: {ci_lo:.1%}–{ci_hi:.1%}]{flag}")
+    
+    print("\n" + "═" * 62)
+
+    # ── Salvar artefatos ─────────────────────────────────────────────────────
     with open(f"{OUT_DIR}/scaler.pkl", "wb") as f:
         pickle.dump(scaler, f)
     np.save(f"{OUT_DIR}/col_medians.npy", col_medians)
@@ -279,7 +279,6 @@ def main():
         json.dump(meta, f, indent=2)
 
     print(f"\n✅ Artefatos salvos em: {OUT_DIR}")
-
 
 if __name__ == "__main__":
     main()
