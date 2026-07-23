@@ -58,7 +58,7 @@ def process_fight(fight: dict, event: dict) -> Optional[dict]:
 
     row = {
         "event_name": event["name"],
-        "event_date": event["date"].date(),
+        "event_date": str(event["date"].date()),
         "fighter_a":  name_a,
         "fighter_b":  name_b,
         "winner":     winner,
