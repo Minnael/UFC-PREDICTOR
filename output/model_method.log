@@ -1,0 +1,83 @@
+(scraping-maluco) PS C:\Users\minna\Music\UFC-SCRAPPING-MASTER\model> py .\train_method.py
+Lutas originais   : 6445
+Estreantes removidos: 955
+Lutas após filtro  : 5490
+
+Split temporal:
+  Treino : 4392 lutas  [2012-12-15 → 2024-02-24]
+  Val    :  549 lutas  [2024-02-24 → 2025-04-05]
+  Teste  :  549 lutas  [2025-04-05 → 2026-06-06]
+  ✅ Sem sobreposição de datas entre splits
+
+Construindo dataset de método (vencedor sempre no slot A)...
+  Lutas descartadas (método fora de KO/Sub/Dec, ex. DQ): 11
+  Lutas descartadas (método fora de KO/Sub/Dec, ex. DQ): 2
+  Lutas descartadas (método fora de KO/Sub/Dec, ex. DQ): 0
+
+  Treino: 4381  Val: 547  Teste: 549
+    Treino — KO/TKO    :  1427  (32.6%)
+    Treino — Submissão :   779  (17.8%)
+    Treino — Decisão   :  2175  (49.6%)
+  Pesos de classe (inverso da frequência): {'KO/TKO': 1.0233590602874756, 'Submissão': 1.874625563621521, 'Decisão': 0.6714176535606384}
+
+Device: cpu
+
+  Ep     Train       Val   Val Acc
+──────────────────────────────────────
+   1    1.1371    1.1009    27.8%
+  20    1.0233    1.0096    50.5%
+  40    1.0009    0.9925    50.6%
+  60    0.9754    0.9851    49.7%
+  80    0.9575    0.9851    49.7%
+ 100    0.9421    0.9801    48.8%
+ 120    0.9249    0.9904    49.0%
+
+  Early stopping na época 136 (melhor val_loss: 0.9799)
+
+Calibrando temperatura com conjunto de validação...
+  Temperatura calibrada: 1.1441
+
+══════════════════════════════════════════════════════════════
+  📊 AVALIAÇÃO FINAL (método) — Conjunto de TESTE (nunca visto antes)
+══════════════════════════════════════════════════════════════
+  Lutas no teste : 549
+  Acurácia       : 0.4736  (47.4%)
+  Log-Loss       : 1.0078
+
+              precision    recall  f1-score   support
+
+      KO/TKO       0.49      0.52      0.51       179
+   Submissão       0.32      0.61      0.42        97
+     Decisão       0.61      0.40      0.48       273
+
+    accuracy                           0.47       549
+   macro avg       0.48      0.51      0.47       549
+weighted avg       0.52      0.47      0.48       549
+
+  Confiança vs Acurácia (Por Método Previsto):
+
+  ➤ Quando o modelo aposta em: KO/TKO
+    Prob ≥ 0.20  →   189 amostras  acc real=49.2%  [IC95%: 42.3%–56.1%]
+    Prob ≥ 0.25  →   189 amostras  acc real=49.2%  [IC95%: 42.3%–56.1%]
+    Prob ≥ 0.30  →   189 amostras  acc real=49.2%  [IC95%: 42.3%–56.1%]
+    Prob ≥ 0.35  →   188 amostras  acc real=48.9%  [IC95%: 42.0%–55.9%]
+    Prob ≥ 0.40  →   161 amostras  acc real=50.9%  [IC95%: 43.5%–58.4%]
+
+  ➤ Quando o modelo aposta em: Submissão
+    Prob ≥ 0.20  →   184 amostras  acc real=32.1%  [IC95%: 25.5%–39.1%]
+    Prob ≥ 0.25  →   184 amostras  acc real=32.1%  [IC95%: 25.5%–39.1%]
+    Prob ≥ 0.30  →   184 amostras  acc real=32.1%  [IC95%: 25.5%–39.1%]
+    Prob ≥ 0.35  →   181 amostras  acc real=32.0%  [IC95%: 25.4%–38.7%]
+    Prob ≥ 0.40  →   151 amostras  acc real=33.1%  [IC95%: 25.8%–40.4%]
+
+  ➤ Quando o modelo aposta em: Decisão
+    Prob ≥ 0.20  →   176 amostras  acc real=61.4%  [IC95%: 54.0%–68.8%]
+    Prob ≥ 0.25  →   176 amostras  acc real=61.4%  [IC95%: 54.0%–68.8%]
+    Prob ≥ 0.30  →   176 amostras  acc real=61.4%  [IC95%: 54.0%–68.8%]
+    Prob ≥ 0.35  →   175 amostras  acc real=61.1%  [IC95%: 53.7%–68.6%]
+    Prob ≥ 0.40  →   147 amostras  acc real=61.2%  [IC95%: 53.1%–68.7%]
+
+══════════════════════════════════════════════════════════════
+
+✅ Artefatos salvos em: artifacts_method
+(scraping-maluco) PS C:\Users\minna\Music\UFC-SCRAPPING-MASTER\model> 

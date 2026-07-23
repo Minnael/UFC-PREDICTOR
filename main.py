@@ -7,10 +7,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import json
 import copy
+import os
 from datetime import datetime
 
 # ── Dados ─────────────────────────────────────────────────────
-with open("next_event_stats.json", encoding="utf-8") as f:
+with open(os.path.join("scripts", "next_event_stats.json"), encoding="utf-8") as f:
     fights = json.load(f)
 
 predictor = FullPredictor(win_artifacts="model/artifacts", method_artifacts="model/artifacts_method")
@@ -105,7 +106,15 @@ def method_table(outcomes, name_a, name_b):
 # ── Função para gerar os relatórios dinamicamente ─────────────
 def gerar_relatorio(evento_nome, considerar_idade=True):
     sufixo = "- Oficial" if considerar_idade else "- Sem Influencia Idade"
-    nome_arquivo = f"{evento_nome} {sufixo}.pdf"
+    
+    # Garante que a pasta output exista
+    os.makedirs("output", exist_ok=True)
+
+    # Caminho completo do PDF
+    nome_arquivo = os.path.join(
+        "output",
+        f"{evento_nome} {sufixo}.pdf"
+    )
     
     doc = SimpleDocTemplate(
         nome_arquivo,
@@ -189,7 +198,7 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
     print(f"PDF salvo: '{nome_arquivo}'")
 
 # ── Execução ──────────────────────────────────────────────────
-evento_alvo = "UFC Freedom"
+evento_alvo = input("Digite o nome do evento: ")
 
 print("Gerando relatórios...")
 # 1. Gera o PDF normal (com as idades reais)
