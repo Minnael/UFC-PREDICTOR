@@ -30,7 +30,7 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-DATA_PATH  = "ufc_dataset.csv"
+DATA_PATH  = "../scripts/global_distribuido/ufc_dataset_male_only.csv"
 OUT_DIR    = "artifacts"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -189,8 +189,10 @@ def _derived(stats: dict) -> list:
     ]
 
 
-def build_row_features(row_a: dict, row_b: dict) -> np.ndarray:
+def build_row_features(row_a: dict, row_b: dict, a_win_streak: float=0, a_loss_streak: float=0, 
+                       b_win_streak: float=0, b_loss_streak: float=0) -> np.ndarray:
     """Constrói vetor de features dado stats de A e B como dicts."""
+
     feats = []
 
     # 1. Deltas numéricos (A − B)
@@ -210,6 +212,10 @@ def build_row_features(row_a: dict, row_b: dict) -> np.ndarray:
     feats.extend(da)
     feats.extend(db)
     feats.extend([a - b for a, b in zip(da, db)])
+
+    # INJEÇÃO DOS STREAKS (As novas features)
+    feats.extend([a_win_streak, a_loss_streak, b_win_streak, b_loss_streak])
+    feats.extend([a_win_streak - b_win_streak, a_loss_streak - b_loss_streak])
 
     # 4. Stance one-hot × 2
     for stats in (row_a, row_b):
@@ -247,10 +253,18 @@ def build_Xy(df: pd.DataFrame, col_medians=None):
         label  = int(row["label"])
         sa, sb = df_row_to_dicts(row)
 
-        X_orig.append(build_row_features(sa, sb))
+        # Extrai os streaks gerados pela compute_streaks do Dataframe
+        aws = float(row.get("a_win_streak", 0))
+        als = float(row.get("a_loss_streak", 0))
+        bws = float(row.get("b_win_streak", 0))
+        bls = float(row.get("b_loss_streak", 0))
+
+        # Envia os streaks na ordem normal
+        X_orig.append(build_row_features(sa, sb, aws, als, bws, bls))
         y_orig.append(label)
 
-        X_mirr.append(build_row_features(sb, sa))   # espelho: A↔B, label inverte
+        # Na augmentação por espelhamento, A e B trocam de lugar (os streaks também)
+        X_mirr.append(build_row_features(sb, sa, bws, bls, aws, als))
         y_mirr.append(1 - label)
 
     X = np.vstack(X_orig + X_mirr)
@@ -337,10 +351,15 @@ def eval_model(model, loader, crit, device, ts=None):
     return total / len(loader.dataset), np.array(preds), np.array(trues), np.array(probs)
 
 
-def calibrate_temperature(model, val_loader, device):
+def calibrate_temperature(model, val_loader, device, class_weights=None):
     ts = TemperatureScaler().to(device)
     opt = torch.optim.LBFGS([ts.temperature], lr=0.01, max_iter=100)
-    crit = nn.CrossEntropyLoss()
+    
+    # Adiciona suporte a pesos para corrigir as probabilidades do método
+    if class_weights is not None:
+        crit = nn.CrossEntropyLoss(weight=class_weights.to(device))
+    else:
+        crit = nn.CrossEntropyLoss()
 
     all_logits, all_labels = [], []
     model.eval()

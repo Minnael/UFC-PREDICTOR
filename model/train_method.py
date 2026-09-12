@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore")
 # ── Reaproveita a engenharia de features e o split de train.py ────────────
 from train import (
     NUMERIC_BASE, STANCE_MAP,
-    load_and_clean, temporal_split,
+    load_and_clean, temporal_split, compute_streaks,
     df_row_to_dicts, build_row_features,
     make_loader, train_epoch, calibrate_temperature,
 )
@@ -31,7 +31,7 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-DATA_PATH = "ufc_dataset.csv"
+DATA_PATH = "../scripts/global_distribuido/ufc_dataset_male_only.csv"
 OUT_DIR   = "artifacts_method"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -73,7 +73,16 @@ def build_Xy_method(df: pd.DataFrame, col_medians=None):
         a_venceu = bool(row["label"])
         winner_stats, loser_stats = (sa, sb) if a_venceu else (sb, sa)
 
-        X_list.append(build_row_features(winner_stats, loser_stats))
+        # Extrai os streaks calculados por compute_streaks (mesma fonte usada
+        # pelo modelo de vencedor) e reordena para vencedor/perdedor, igual
+        # já é feito acima com winner_stats/loser_stats
+        aws = float(row.get("a_win_streak", 0))
+        als = float(row.get("a_loss_streak", 0))
+        bws = float(row.get("b_win_streak", 0))
+        bls = float(row.get("b_loss_streak", 0))
+        w_ws, w_ls, l_ws, l_ls = (aws, als, bws, bls) if a_venceu else (bws, bls, aws, als)
+
+        X_list.append(build_row_features(winner_stats, loser_stats, w_ws, w_ls, l_ws, l_ls))
         y_list.append(y_cls)
 
     print(f"  Lutas descartadas (método fora de KO/Sub/Dec, ex. DQ): {dropped}")
@@ -145,6 +154,7 @@ def eval_model_multiclass(model, loader, crit, device, ts=None):
 
 def main():
     df = load_and_clean(DATA_PATH)
+    df = compute_streaks(df)          # ← FIX: precisa rodar antes do split, igual em train.py
     df_train, df_val, df_test = temporal_split(df)
 
     print("\nConstruindo dataset de método (vencedor sempre no slot A)...")

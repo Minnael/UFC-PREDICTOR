@@ -79,66 +79,45 @@ def _derived(stats: dict) -> list:
     ]
 
 
-def _impute_debutant(stats: dict) -> dict:
-    if int(float(stats.get("total_fights", 0) or 0)) > 0:
-        return stats
-    
-    s = stats.copy()
-    s["total_fights"] = 3.0
-    s["wins"] = 1.5
-    s["losses"] = 1.5
-    s["wins_ko"] = 0.45
-    s["wins_sub"] = 0.30
-    s["wins_dec"] = 0.75
-    s["losses_ko"] = 0.45
-    s["losses_sub"] = 0.30
-    s["losses_dec"] = 0.75
-    s["sig_strikes_hit_total"] = 105.0
-    s["td_hit_total"] = 3.6
-    s["sub_att_total"] = 1.2
-    s["kd_total"] = 0.3
-    s["sig_strikes_per_min"] = 3.5
-    s["td_per_15min"] = 1.2
-    s["sub_per_15min"] = 0.4
-    
-    s["kd_absorbed_total"] = 0.3
-    s["sig_strikes_absorbed_total"] = 105.0
-    s["td_absorbed_total"] = 3.6
-    s["sub_absorbed_total"] = 1.2
-    s["sig_strikes_absorbed_per_min"] = 3.5
-    s["td_absorbed_per_15min"] = 1.2
-    s["sub_absorbed_per_15min"] = 0.4
-    
-    s["avg_fight_time_sec"] = 600.0
-    return s
-
-
-def _build_features(stats_a: dict, stats_b: dict) -> np.ndarray:
-    stats_a = _impute_debutant(stats_a)
-    stats_b = _impute_debutant(stats_b)
+def build_row_features(stats_a: dict, stats_b: dict, a_win_streak: float=0, a_loss_streak: float=0, b_win_streak: float=0, b_loss_streak: float=0) -> np.ndarray:
+    # Observe que as duas linhas antigas de imputação SUMIRAM daqui.
     feats = []
+
+    # 1. Deltas numéricos (A − B)
     for col in NUMERIC_BASE:
         va = float(stats_a.get(col, 0) or 0)
         vb = float(stats_b.get(col, 0) or 0)
         feats.append(va - vb)
+
+    # 2. Absolutos
     for stats in (stats_a, stats_b):
         for col in NUMERIC_BASE:
             feats.append(float(stats.get(col, 0) or 0))
+
+    # 3. Derivadas
     da = _derived(stats_a)
     db = _derived(stats_b)
     feats.extend(da)
     feats.extend(db)
     feats.extend([a - b for a, b in zip(da, db)])
+
+    # 4. STREAKS (As novas features)
+    feats.extend([a_win_streak, a_loss_streak, b_win_streak, b_loss_streak])
+    feats.extend([a_win_streak - b_win_streak, a_loss_streak - b_loss_streak])
+
+    # 5. Stances
     for stats in (stats_a, stats_b):
         idx = STANCE_MAP.get(str(stats.get("stance", "Orthodox")), 0)
         ohe = [0.0, 0.0, 0.0]
         ohe[idx] = 1.0
         feats.extend(ohe)
+
     sa = STANCE_MAP.get(str(stats_a.get("stance", "Orthodox")), 0)
     sb = STANCE_MAP.get(str(stats_b.get("stance", "Orthodox")), 0)
     feats.append(float(sa != sb))
     feats.append(float(sa == 1))
     feats.append(float(sb == 1))
+
     return np.array(feats, dtype=np.float32)
 
 
@@ -169,7 +148,25 @@ class FightPredictor:
 
     def predict(self, fighter_a: dict, fighter_b: dict,
                 name_a: str = "Fighter A", name_b: str = "Fighter B") -> dict:
-        x = _build_features(fighter_a, fighter_b)
+        
+        # TRAVA DE SEGURANÇA: Bloqueia a previsão se algum deles for estreante puro
+        if float(fighter_a.get("total_fights", 0)) == 0 or float(fighter_b.get("total_fights", 0)) == 0:
+            return {
+                "fighter_a": name_a,
+                "fighter_b": name_b,
+                "error": "Previsão abortada: O modelo exige lutadores com pelo menos 1 luta no histórico do UFC."
+            }
+
+        # EXTRAÇÃO DOS STREAKS: Puxa as sequências se existirem (padrão 0)
+        aws = float(fighter_a.get("win_streak", 0))
+        als = float(fighter_a.get("loss_streak", 0))
+        bws = float(fighter_b.get("win_streak", 0))
+        bls = float(fighter_b.get("loss_streak", 0))
+
+        # Passa os dicionários puramente reais e os streaks para construir as features
+        x = build_row_features(fighter_a, fighter_b, aws, als, bws, bls)
+        
+        # A partir daqui, o código flui normalmente (Nan check, Scaler, Tensor, etc)
         x = np.where(np.isfinite(x), x, np.nan)
         nan_idx = np.where(np.isnan(x))[0]
         for i in nan_idx:
@@ -200,20 +197,3 @@ class FightPredictor:
             "confidence": round(confidence * 100, 1),
             "conf_label": conf_label,
         }
-
-    def print_prediction(self, result: dict):
-        pa, pb   = result["prob_a"], result["prob_b"]
-        na, nb   = result["fighter_a"], result["fighter_b"]
-        bar_a    = "█" * int(pa / 2)
-        bar_b    = "█" * int(pb / 2)
-        print("\n" + "═" * 58)
-        print("  🥊  UFC FIGHT PREDICTOR")
-        print("═" * 58)
-        print(f"  {na} vs {nb}")
-        print("─" * 58)
-        print(f"  {na:<26} {pa:>5.1f}%  {bar_a}")
-        print(f"  {nb:<26} {pb:>5.1f}%  {bar_b}")
-        print("─" * 58)
-        print(f"  Favorito  : {result['favorite']}")
-        print(f"  Confiança : {result['conf_label']}  ({result['confidence']:.1f}%)")
-        print("═" * 58)

@@ -15,7 +15,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from model.predict import FightPredictor, _build_features
+from model.predict import FightPredictor, build_row_features
 
 METHOD_NAMES = ["KO/TKO", "Submissão", "Decisão"]
 
@@ -70,9 +70,17 @@ class MethodPredictor:
         )
 
     def predict_conditional(self, winner_stats: dict, loser_stats: dict) -> np.ndarray:
-        """P(método | winner_stats vence loser_stats). Retorna array shape (3,)
-        na ordem METHOD_NAMES = ['KO/TKO', 'Submissão', 'Decisão']."""
-        x = _build_features(winner_stats, loser_stats)
+        """P(método | winner_stats vence loser_stats)."""
+        
+        # 1. Extração dos STREAKS para o modelo de método
+        wws = float(winner_stats.get("win_streak", 0))
+        wls = float(winner_stats.get("loss_streak", 0))
+        lws = float(loser_stats.get("win_streak", 0))
+        lls = float(loser_stats.get("loss_streak", 0))
+
+        # 2. Constrói as features com a função nova, repassando as sequências
+        x = build_row_features(winner_stats, loser_stats, wws, wls, lws, lls)
+        
         x = np.where(np.isfinite(x), x, np.nan)
         nan_idx = np.where(np.isnan(x))[0]
         for i in nan_idx:
@@ -100,6 +108,12 @@ class FullPredictor:
     def predict(self, fighter_a: dict, fighter_b: dict,
                 name_a: str = "Fighter A", name_b: str = "Fighter B") -> dict:
         win_result = self.win_model.predict(fighter_a, fighter_b, name_a, name_b)
+
+        # Estreante(s) sem histórico suficiente — repassa o erro sem tentar
+        # calcular método (evita KeyError ao acessar prob_a/prob_b)
+        if "error" in win_result:
+            return win_result
+
         p_a = win_result["prob_a"] / 100
         p_b = win_result["prob_b"] / 100
 
