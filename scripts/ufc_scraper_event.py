@@ -14,7 +14,7 @@ from ufc_scraper_global import get, get_fighter_profile, calc_stats
 # Exemplo:
 # http://ufcstats.com/event-details/f354c50b8d63d9b3
 # ============================================================
-EVENT_URL = "http://ufcstats.com/event-details/638cfec7ec559d6e"
+EVENT_URL = "http://ufcstats.com/event-details/2144954270be834d"
 
 print(f"Coletando evento: {EVENT_URL}")
 
