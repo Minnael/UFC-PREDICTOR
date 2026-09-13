@@ -30,7 +30,7 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-DATA_PATH  = "../scripts/global_distribuido/ufc_dataset_male_only.csv"
+DATA_PATH  = "../scripts/global_distribuido/ufc_dataset.csv"
 OUT_DIR    = "artifacts"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -131,14 +131,10 @@ def load_and_clean(path: str) -> pd.DataFrame:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def temporal_split(df: pd.DataFrame):
-    n       = len(df)
-    n_train = int(n * 0.80)
-    n_val   = int(n * 0.10)
-    n_test  = n - n_train - n_val
-
-    df_train = df.iloc[:n_train].reset_index(drop=True)
-    df_val   = df.iloc[n_train : n_train + n_val].reset_index(drop=True)
-    df_test  = df.iloc[n_train + n_val :].reset_index(drop=True)
+    df = df[df['event_date'].dt.year >= 2015].reset_index(drop=True)
+    df_train = df[df["event_date"].dt.year <= 2022].reset_index(drop=True)
+    df_val = df[df["event_date"].dt.year.isin([2023, 2024])].reset_index(drop=True)
+    df_test  = df[df["event_date"].dt.year.isin([2025, 2026])].reset_index(drop=True)
 
     print(f"\nSplit temporal:")
     print(f"  Treino : {len(df_train):>4} lutas  "
