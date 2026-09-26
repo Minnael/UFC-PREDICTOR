@@ -2,9 +2,11 @@ from model.predict_method import FullPredictor
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether, PageBreak
+from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+                                 HRFlowable, KeepTogether, PageBreak)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.graphics.shapes import Drawing, Rect
 import json
 import copy
 import os
@@ -16,101 +18,183 @@ with open(os.path.join("scripts", "next_event_stats.json"), encoding="utf-8") as
 
 predictor = FullPredictor(win_artifacts="model/artifacts", method_artifacts="model/artifacts_method")
 
+# ── Paleta institucional ────────────────────────────────────────
+# Cada cor existe em duas formas: string hexadecimal (para uso dentro de
+# tags <font color="..."> em Paragraphs) e objeto Color (para tabelas,
+# linhas e formas gráficas).
+HEX_PRIMARIA      = "#8C1D2B"   # bordo / vermelho institucional
+HEX_SECUNDARIA    = "#1B2A4A"   # azul-marinho
+HEX_TEXTO         = "#1A1A1A"   # quase preto
+HEX_TEXTO_MEDIO   = "#4A4A4A"
+HEX_TEXTO_CLARO   = "#6E6E6E"
+HEX_DESTAQUE      = "#B8860B"   # dourado discreto, para valores-chave
+HEX_ALERTA        = "#B36A00"
+
+COR_PRIMARIA      = colors.HexColor(HEX_PRIMARIA)
+COR_SECUNDARIA    = colors.HexColor(HEX_SECUNDARIA)
+COR_TEXTO         = colors.HexColor(HEX_TEXTO)
+COR_TEXTO_MEDIO   = colors.HexColor(HEX_TEXTO_MEDIO)
+COR_TEXTO_CLARO   = colors.HexColor(HEX_TEXTO_CLARO)
+COR_LINHA         = colors.HexColor("#CCCCCC")
+COR_FUNDO_ALT     = colors.HexColor("#F4F4F6")
+COR_CABECALHO_TAB = colors.HexColor("#1B2A4A")
+COR_DESTAQUE      = colors.HexColor(HEX_DESTAQUE)
+COR_ALERTA        = colors.HexColor(HEX_ALERTA)
+
+NOME_AUTOR = "Minnael Campelo"
+
 # ── Estilos ───────────────────────────────────────────────────
 s_title = ParagraphStyle("title",
-    fontSize=22, fontName="Helvetica-Bold",
-    textColor=colors.HexColor("#C8102E"),
-    alignment=TA_CENTER, spaceAfter=4)
+    fontSize=21, fontName="Helvetica-Bold",
+    textColor=COR_PRIMARIA,
+    alignment=TA_CENTER, spaceAfter=2, leading=25)
 
 s_subtitle = ParagraphStyle("subtitle",
     fontSize=11, fontName="Helvetica",
-    textColor=colors.HexColor("#AAAAAA"),
-    alignment=TA_CENTER, spaceBefore=20, spaceAfter=20)
+    textColor=COR_TEXTO_MEDIO,
+    alignment=TA_CENTER, spaceBefore=4, spaceAfter=2, leading=15)
+
+s_meta = ParagraphStyle("meta",
+    fontSize=9, fontName="Helvetica",
+    textColor=COR_TEXTO_CLARO,
+    alignment=TA_CENTER, spaceBefore=0, spaceAfter=18)
 
 s_fight_num = ParagraphStyle("fight_num",
-    fontSize=9, fontName="Helvetica",
-    textColor=colors.HexColor("#777777"),
-    alignment=TA_CENTER, spaceAfter=2)
+    fontSize=9, fontName="Helvetica-Bold",
+    textColor=COR_SECUNDARIA,
+    alignment=TA_CENTER, spaceAfter=1, tracking=0.5)
+
+s_weight_class = ParagraphStyle("weight_class",
+    fontSize=8.5, fontName="Helvetica-Oblique",
+    textColor=COR_TEXTO_CLARO,
+    alignment=TA_CENTER, spaceAfter=8)
 
 s_vs = ParagraphStyle("vs",
-    fontSize=16, fontName="Helvetica-Bold",
-    textColor=colors.HexColor("#FFFFFF"),
-    alignment=TA_CENTER, spaceAfter=8)
+    fontSize=15, fontName="Helvetica-Bold",
+    textColor=COR_TEXTO,
+    alignment=TA_CENTER, spaceAfter=10)
 
 s_favorite = ParagraphStyle("favorite",
     fontSize=10, fontName="Helvetica-Bold",
-    textColor=colors.HexColor("#E74C3C"),
+    textColor=COR_TEXTO,
     alignment=TA_CENTER, spaceAfter=0)
 
 s_conf = ParagraphStyle("conf",
     fontSize=9, fontName="Helvetica",
-    textColor=colors.HexColor("#CCCCCC"),
+    textColor=COR_TEXTO_MEDIO,
     alignment=TA_CENTER, spaceAfter=6)
 
+s_odds = ParagraphStyle("odds",
+    fontSize=9, fontName="Helvetica",
+    textColor=COR_TEXTO_MEDIO,
+    alignment=TA_CENTER, spaceAfter=8)
+
 s_no_pred = ParagraphStyle("no_pred",
-    fontSize=13, fontName="Helvetica-Bold",
-    textColor=colors.HexColor("#888888"),
-    alignment=TA_CENTER, spaceBefore=14, spaceAfter=6)
+    fontSize=12, fontName="Helvetica-Bold",
+    textColor=COR_TEXTO_MEDIO,
+    alignment=TA_CENTER, spaceBefore=10, spaceAfter=4)
 
 s_no_pred_reason = ParagraphStyle("no_pred_reason",
-    fontSize=8, fontName="Helvetica",
-    textColor=colors.HexColor("#666666"),
+    fontSize=8.5, fontName="Helvetica",
+    textColor=COR_TEXTO_CLARO,
     alignment=TA_CENTER, spaceAfter=14)
 
-# ── Helper: barra de probabilidade ────────────────────────────
+s_section_title = ParagraphStyle("section_title",
+    fontSize=16, fontName="Helvetica-Bold",
+    textColor=COR_PRIMARIA,
+    alignment=TA_CENTER, spaceAfter=6, spaceBefore=10)
+
+s_section_intro = ParagraphStyle("section_intro",
+    fontSize=9.5, fontName="Helvetica",
+    textColor=COR_TEXTO_MEDIO,
+    alignment=TA_CENTER, spaceBefore=4, spaceAfter=16, leading=13)
+
+s_footer_disclaimer = ParagraphStyle("footer_disc",
+    fontSize=7.5, fontName="Helvetica",
+    textColor=COR_TEXTO_CLARO,
+    alignment=TA_CENTER, leading=10)
+
+
+# ── Mapeamento de categoria de peso ─────────────────────────────
+WEIGHT_CLASSES = [
+    (53.0, "Peso Palha (Strawweight)"),
+    (58.0, "Peso Mosca (Flyweight)"),
+    (62.0, "Peso Galo (Bantamweight)"),
+    (67.0, "Peso Pena (Featherweight)"),
+    (71.0, "Peso Leve (Lightweight)"),
+    (78.0, "Meio-Médio (Welterweight)"),
+    (85.0, "Peso Médio (Middleweight)"),
+    (94.0, "Meio-Pesado (Light Heavyweight)"),
+]
+
+def get_weight_class(weight_kg):
+    if not weight_kg or weight_kg <= 0:
+        return "Categoria não informada"
+    for limite, nome in WEIGHT_CLASSES:
+        if weight_kg <= limite:
+            return nome
+    return "Peso Pesado (Heavyweight)"
+
+
+# ── Helper: barra grafica de probabilidade ──────────────────────
+def prob_bar_drawing(prob_pct, bar_color, width=260, height=11):
+    d = Drawing(width, height)
+    d.add(Rect(0, 0, width, height, fillColor=COR_FUNDO_ALT, strokeColor=COR_LINHA, strokeWidth=0.5))
+    fill_w = max(0.0, min(width, width * (prob_pct / 100.0)))
+    if fill_w > 0:
+        d.add(Rect(0, 0, fill_w, height, fillColor=bar_color, strokeColor=None))
+    return d
+
 def prob_bar_table(name_a, prob_a, name_b, prob_b):
-    bar_total = 30
-    fill_a = int(round(prob_a / 100 * bar_total))
-    fill_b = bar_total - fill_a
-
-    bar_a = "\u2588" * fill_a + "\u2591" * (bar_total - fill_a)
-    bar_b = "\u2591" * (bar_total - fill_b) + "\u2588" * fill_b
-
-    col_name  = ParagraphStyle("cn",  fontSize=9,  fontName="Helvetica-Bold", textColor=colors.HexColor("#FFFFFF"))
-    col_bar_a = ParagraphStyle("cba", fontSize=8,  fontName="Helvetica",      textColor=colors.HexColor("#E74C3C"))
-    col_bar_b = ParagraphStyle("cbb", fontSize=8,  fontName="Helvetica",      textColor=colors.HexColor("#3498DB"))
-    col_pct   = ParagraphStyle("cp",  fontSize=10, fontName="Helvetica-Bold", textColor=colors.HexColor("#DDDDDD"), alignment=TA_CENTER)
+    col_name = ParagraphStyle("cn", fontSize=9, fontName="Helvetica-Bold", textColor=COR_TEXTO)
+    col_pct  = ParagraphStyle("cp", fontSize=9.5, fontName="Helvetica-Bold", textColor=COR_TEXTO, alignment=TA_CENTER)
 
     data = [
-        [Paragraph(name_a, col_name), Paragraph(bar_a, col_bar_a), Paragraph(f"{prob_a:.1f}%", col_pct)],
-        [Paragraph(name_b, col_name), Paragraph(bar_b, col_bar_b), Paragraph(f"{prob_b:.1f}%", col_pct)],
+        [Paragraph(name_a, col_name), prob_bar_drawing(prob_a, COR_PRIMARIA), Paragraph(f"{prob_a:.1f}%", col_pct)],
+        [Paragraph(name_b, col_name), prob_bar_drawing(prob_b, COR_SECUNDARIA), Paragraph(f"{prob_b:.1f}%", col_pct)],
     ]
-    t = Table(data, colWidths=[5*cm, 9*cm, 2.5*cm])
+    t = Table(data, colWidths=[5*cm, 9*cm, 2.2*cm])
     t.setStyle(TableStyle([
-        ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
-        ("TOPPADDING",   (0,0), (-1,-1), 5),
-        ("BOTTOMPADDING",(0,0), (-1,-1), 5),
-        ("LEFTPADDING",  (0,0), (-1,-1), 0),
-        ("ROWBACKGROUNDS",(0,0),(-1,-1), [colors.HexColor("#2A2A2A"), colors.HexColor("#1E1E1E")]),
-        ("LINEBELOW",    (0,0), (-1,-2), 0.3, colors.HexColor("#444444")),
+        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING",    (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+        ("LEFTPADDING",   (0,0), (-1,-1), 0),
+        ("LINEBELOW",     (0,0), (-1,-2), 0.4, COR_LINHA),
     ]))
     return t
 
 def conf_color(conf_pct):
-    if conf_pct < 10: return "#888888"
-    if conf_pct < 20: return "#F1C40F"
-    if conf_pct < 35: return "#E67E22"
-    return "#E74C3C"
+    """Retorna a cor (em hexadecimal) associada ao nível de confiança da previsão."""
+    if conf_pct < 10: return HEX_TEXTO_CLARO
+    if conf_pct < 20: return HEX_DESTAQUE
+    if conf_pct < 35: return HEX_ALERTA
+    return HEX_PRIMARIA
+
+def table_header_style(n_cols):
+    return TableStyle([
+        ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+        ("BACKGROUND",    (0,0), (-1,0), COR_CABECALHO_TAB),
+        ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+        ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+        ("GRID",          (0,0), (-1,-1), 0.4, COR_LINHA),
+        ("ROWBACKGROUNDS",(0,1), (-1,-1), [colors.white, COR_FUNDO_ALT]),
+        ("TOPPADDING",    (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+    ])
 
 def method_table(outcomes, name_a, name_b):
-    col_hdr = ParagraphStyle("ch", fontSize=8, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=colors.HexColor("#FFFFFF"))
-    col_txt = ParagraphStyle("ct", fontSize=8, fontName="Helvetica", alignment=TA_CENTER, textColor=colors.HexColor("#DDDDDD"))
-    
+    col_hdr = ParagraphStyle("ch", fontSize=8.5, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=colors.white)
+    col_txt = ParagraphStyle("ct", fontSize=8.5, fontName="Helvetica", alignment=TA_CENTER, textColor=COR_TEXTO)
+
     data = [
-        [Paragraph("Método", col_hdr), Paragraph(name_a, col_hdr), Paragraph(name_b, col_hdr)],
-        [Paragraph("KO/TKO", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — KO/TKO', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — KO/TKO', 0):.1f}%", col_txt)],
-        [Paragraph("Submissão", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — Submissão', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — Submissão', 0):.1f}%", col_txt)],
-        [Paragraph("Decisão", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — Decisão', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — Decisão', 0):.1f}%", col_txt)],
+        [Paragraph("Método de Vitória", col_hdr), Paragraph(name_a, col_hdr), Paragraph(name_b, col_hdr)],
+        [Paragraph("Nocaute (KO/TKO)", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — KO/TKO', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — KO/TKO', 0):.1f}%", col_txt)],
+        [Paragraph("Finalização (Submissão)", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — Submissão', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — Submissão', 0):.1f}%", col_txt)],
+        [Paragraph("Decisão dos Juízes", col_txt), Paragraph(f"{outcomes.get(f'{name_a} — Decisão', 0):.1f}%", col_txt), Paragraph(f"{outcomes.get(f'{name_b} — Decisão', 0):.1f}%", col_txt)],
     ]
-    t = Table(data, colWidths=[4*cm, 5*cm, 5*cm])
-    t.setStyle(TableStyle([
-        ("ALIGN", (0,0), (-1,-1), "CENTER"),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#333333")),
-        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#444444")),
-        ("TOPPADDING", (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-    ]))
+    t = Table(data, colWidths=[4.5*cm, 4.75*cm, 4.75*cm])
+    t.setStyle(table_header_style(3))
     return t
 
 def get_time_factors(weight_kg):
@@ -126,85 +210,83 @@ def get_time_factors(weight_kg):
     return 0.90, 0.70 # Heavyweight
 
 def time_odds_table(outcomes, name_a, name_b, weight_kg):
-    col_hdr = ParagraphStyle("ch", fontSize=8, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=colors.HexColor("#FFFFFF"))
-    col_txt = ParagraphStyle("ct", fontSize=8, fontName="Helvetica", alignment=TA_CENTER, textColor=colors.HexColor("#F1C40F"))
-    col_label = ParagraphStyle("cl", fontSize=8, fontName="Helvetica", alignment=TA_CENTER, textColor=colors.HexColor("#DDDDDD"))
-    col_calc = ParagraphStyle("cc", fontSize=7, fontName="Helvetica", alignment=TA_CENTER, textColor=colors.HexColor("#AAAAAA"))
+    col_hdr   = ParagraphStyle("ch", fontSize=8.5, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=colors.white)
+    col_txt   = ParagraphStyle("ct", fontSize=8.5, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=COR_DESTAQUE)
+    col_label = ParagraphStyle("cl", fontSize=8.5, fontName="Helvetica", alignment=TA_CENTER, textColor=COR_TEXTO)
+    col_calc  = ParagraphStyle("cc", fontSize=7.5, fontName="Helvetica", alignment=TA_CENTER, textColor=COR_TEXTO_CLARO)
 
     prob_via_rapida = outcomes.get(f'{name_a} — KO/TKO', 0) + outcomes.get(f'{name_a} — Submissão', 0) + \
                       outcomes.get(f'{name_b} — KO/TKO', 0) + outcomes.get(f'{name_b} — Submissão', 0)
-    
+
     fator_25, fator_15 = get_time_factors(weight_kg)
-    
+
     prob_u25 = prob_via_rapida * fator_25
     prob_u15 = prob_via_rapida * fator_15
-    
+
     prob_o25 = 100.0 - prob_u25
     prob_o15 = 100.0 - prob_u15
-    
+
     odd_u25 = 100.0 / prob_u25 if prob_u25 > 0 else 99.99
     odd_u15 = 100.0 / prob_u15 if prob_u15 > 0 else 99.99
     odd_o25 = 100.0 / prob_o25 if prob_o25 > 0 else 99.99
     odd_o15 = 100.0 / prob_o15 if prob_o15 > 0 else 99.99
-    
-    # Cap odds at 99.99 visually
+
     if odd_u25 > 99.99: odd_u25 = 99.99
     if odd_u15 > 99.99: odd_u15 = 99.99
     if odd_o25 > 99.99: odd_o25 = 99.99
     if odd_o15 > 99.99: odd_o15 = 99.99
 
     data = [
-        [Paragraph("Linha (Rounds)", col_hdr), Paragraph("Cálculo da Probabilidade Real", col_hdr), Paragraph("Odd Justa (EV+)", col_hdr)],
-        [Paragraph("Menos de 2.5", col_label), Paragraph(f"({prob_via_rapida:.1f}% * {fator_25:.2f}) = <b>{prob_u25:.1f}%</b>", col_calc), Paragraph(f"{odd_u25:.2f}", col_txt)],
-        [Paragraph("Mais de 2.5", col_label), Paragraph(f"(100% - {prob_u25:.1f}%) = <b>{prob_o25:.1f}%</b>", col_calc), Paragraph(f"{odd_o25:.2f}", col_txt)],
-        [Paragraph("Menos de 1.5", col_label), Paragraph(f"({prob_via_rapida:.1f}% * {fator_15:.2f}) = <b>{prob_u15:.1f}%</b>", col_calc), Paragraph(f"{odd_u15:.2f}", col_txt)],
-        [Paragraph("Mais de 1.5", col_label), Paragraph(f"(100% - {prob_u15:.1f}%) = <b>{prob_o15:.1f}%</b>", col_calc), Paragraph(f"{odd_o15:.2f}", col_txt)],
+        [Paragraph("Linha (Assaltos)", col_hdr), Paragraph("Cálculo da Probabilidade Real", col_hdr), Paragraph("Odd Justa (EV+)", col_hdr)],
+        [Paragraph("Menos de 2.5", col_label), Paragraph(f"({prob_via_rapida:.1f}% × {fator_25:.2f}) = <b>{prob_u25:.1f}%</b>", col_calc), Paragraph(f"{odd_u25:.2f}", col_txt)],
+        [Paragraph("Mais de 2.5", col_label), Paragraph(f"(100% − {prob_u25:.1f}%) = <b>{prob_o25:.1f}%</b>", col_calc), Paragraph(f"{odd_o25:.2f}", col_txt)],
+        [Paragraph("Menos de 1.5", col_label), Paragraph(f"({prob_via_rapida:.1f}% × {fator_15:.2f}) = <b>{prob_u15:.1f}%</b>", col_calc), Paragraph(f"{odd_u15:.2f}", col_txt)],
+        [Paragraph("Mais de 1.5", col_label), Paragraph(f"(100% − {prob_u15:.1f}%) = <b>{prob_o15:.1f}%</b>", col_calc), Paragraph(f"{odd_o15:.2f}", col_txt)],
     ]
-    
+
     t = Table(data, colWidths=[3.5*cm, 7*cm, 3.5*cm])
-    t.setStyle(TableStyle([
-        ("ALIGN", (0,0), (-1,-1), "CENTER"),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#333333")),
-        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#444444")),
-        ("TOPPADDING", (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-    ]))
+    t.setStyle(table_header_style(3))
     return t
 
 # ── Função para gerar os relatórios dinamicamente ─────────────
 def gerar_relatorio(evento_nome, considerar_idade=True):
     sufixo = "- Oficial" if considerar_idade else "- Sem Influencia Idade"
-    
+
     os.makedirs("output", exist_ok=True)
 
     nome_arquivo = os.path.join(
         "output",
         f"{evento_nome} {sufixo}.pdf"
     )
-    
+
     doc = SimpleDocTemplate(
         nome_arquivo,
         pagesize=A4,
-        leftMargin=2*cm, rightMargin=2*cm,
-        topMargin=2*cm, bottomMargin=2*cm,
+        leftMargin=2.2*cm, rightMargin=2.2*cm,
+        topMargin=2.6*cm, bottomMargin=2.3*cm,
     )
 
     story = []
 
     story.append(Paragraph("UFC FIGHT PREDICTOR", s_title))
+    story.append(Paragraph("Relatório Técnico de Análise Preditiva de Combates", s_subtitle))
     if considerar_idade:
-        story.append(Paragraph(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", s_subtitle))
+        story.append(Paragraph(
+            f"Evento: {evento_nome}  |  Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}",
+            s_meta))
     else:
-        aviso_idade = ParagraphStyle("aviso", parent=s_subtitle, textColor=colors.HexColor("#E07B1A"))
-        story.append(Paragraph(f"Simulação What-If: Ignorando a Vantagem de Idade<br/>Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}", aviso_idade))
-        
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#C8102E"), spaceAfter=20))
+        aviso_idade = ParagraphStyle("aviso", parent=s_meta, textColor=COR_ALERTA, fontName="Helvetica-Bold")
+        story.append(Paragraph(
+            f"CENÁRIO HIPOTÉTICO — Vantagem de idade neutralizada entre os atletas<br/>"
+            f"Evento: {evento_nome}  |  Gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}",
+            aviso_idade))
+
+    story.append(HRFlowable(width="100%", thickness=1.2, color=COR_PRIMARIA, spaceAfter=20))
 
     for i, fight in enumerate(fights, 1):
         nomes = list(fight.keys())
         nome_a, nome_b = nomes[0], nomes[1]
-        
+
         stats_a = copy.deepcopy(fight[nome_a])
         stats_b = copy.deepcopy(fight[nome_b])
 
@@ -218,27 +300,31 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
 
         fights_a = int(float(stats_a.get("total_fights", 0) or 0))
         fights_b = int(float(stats_b.get("total_fights", 0) or 0))
-        
+
         tag_a = ""
-        if fights_a == 0: tag_a = "<font color='#FF0000'>(E) </font>"
-        elif fights_a <= 3: tag_a = f"<font color='#FF6600'>({fights_a}) </font>"
-            
+        if fights_a == 0: tag_a = f'<font color="{HEX_PRIMARIA}" size="7">[ESTREANTE]  </font>'
+        elif fights_a <= 3: tag_a = f'<font color="{HEX_ALERTA}" size="7">[{fights_a} LUTAS]  </font>'
+
         tag_b = ""
-        if fights_b == 0: tag_b = "<font color='#FF0000'> (E)</font>"
-        elif fights_b <= 3: tag_b = f"<font color='#FF6600'> ({fights_b})</font>"
+        if fights_b == 0: tag_b = f'<font color="{HEX_PRIMARIA}" size="7">  [ESTREANTE]</font>'
+        elif fights_b <= 3: tag_b = f'<font color="{HEX_ALERTA}" size="7">  [{fights_b} LUTAS]</font>'
 
         display_a = f"{tag_a}{nome_a}"
         display_b = f"{nome_b}{tag_b}"
 
+        peso_kg = stats_a.get("weight_kg", 0) or stats_b.get("weight_kg", 0)
+        categoria_peso = get_weight_class(peso_kg)
+
         fight_elements = []
         fight_elements.append(Paragraph(f"LUTA {i} DE {len(fights)}", s_fight_num))
+        fight_elements.append(Paragraph(f"Categoria de Peso: {categoria_peso}", s_weight_class))
         fight_elements.append(Paragraph(f"{display_a}  vs  {display_b}", s_vs))
 
         if "error" in result:
-            # Estreante(s) sem histórico suficiente — modelo não arrisca previsão
-            fight_elements.append(Paragraph("⚪ SEM PREVISÃO DISPONÍVEL", s_no_pred))
+            fight_elements.append(Paragraph("PREVISÃO INDISPONÍVEL", s_no_pred))
             fight_elements.append(Paragraph(
-                "O modelo exige pelo menos 1 luta no histórico do UFC para ambos os lutadores.",
+                "O modelo exige histórico mínimo de uma luta no UFC para ambos os atletas a fim de "
+                "emitir uma previsão estatisticamente fundamentada.",
                 s_no_pred_reason))
         else:
             prob_a = result["prob_a"]
@@ -250,88 +336,101 @@ def gerar_relatorio(evento_nome, considerar_idade=True):
             fight_elements.append(prob_bar_table(nome_a, prob_a, nome_b, prob_b))
 
             cc = conf_color(conf)
-            fight_elements.append(Paragraph(f'Favorito: <font color="{cc}"><b>{fav}</b></font>', s_favorite))
-            fight_elements.append(Paragraph(f"Confianca: {clabel} ({conf:.1f}%)", s_conf))
+            fight_elements.append(Paragraph(
+                f'Favorito: <font color="{cc}"><b>{fav}</b></font>', s_favorite))
+            fight_elements.append(Paragraph(f"Nível de Confiança: {clabel} ({conf:.1f}%)", s_conf))
 
             fav_prob = prob_a if fav == nome_a else prob_b
             fav_odd = 100.0 / fav_prob if fav_prob > 0 else 99.99
             underdog_prob = prob_b if fav == nome_a else prob_a
             underdog_odd = 100.0 / underdog_prob if underdog_prob > 0 else 99.99
 
-            s_odds = ParagraphStyle("odds", fontSize=9, fontName="Helvetica", textColor=colors.HexColor("#F1C40F"), alignment=TA_CENTER, spaceAfter=6)
-            fight_elements.append(Paragraph(f"Odd Justa — Favorito: <b>{fav_odd:.2f}</b> | Azarão: <b>{underdog_odd:.2f}</b>", s_odds))
+            fight_elements.append(Paragraph(
+                f"Odd Justa — Favorito: <b>{fav_odd:.2f}</b>  |  Azarão: <b>{underdog_odd:.2f}</b>", s_odds))
 
             fight_elements.append(Spacer(1, 4))
             fight_elements.append(method_table(result["outcomes"], nome_a, nome_b))
-            fight_elements.append(Spacer(1, 4))
-            fight_elements.append(time_odds_table(result["outcomes"], nome_a, nome_b, stats_a.get("weight_kg", 0)))
+            fight_elements.append(Spacer(1, 6))
+            fight_elements.append(time_odds_table(result["outcomes"], nome_a, nome_b, peso_kg))
 
-        fight_elements.append(Spacer(1, 8))
+        fight_elements.append(Spacer(1, 10))
 
         if i < len(fights):
             fight_elements.append(HRFlowable(width="100%", thickness=0.5,
-                                    color=colors.HexColor("#DDDDDD"), spaceAfter=8))
-                                    
+                                    color=COR_LINHA, spaceAfter=10))
+
         story.append(KeepTogether(fight_elements))
 
-    # Rodapé
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#C8102E"), spaceBefore=10))
-    msg_rodape = "Modelo treinado com dados historicos do ufcstats.com — apenas para fins informativos."
+    # Rodapé da última página de lutas
+    story.append(HRFlowable(width="100%", thickness=1.2, color=COR_PRIMARIA, spaceBefore=8, spaceAfter=8))
+    msg_rodape = ("Relatório gerado por modelo estatístico treinado com dados históricos do UFCSTATS.com. "
+                  "Documento de caráter exclusivamente informativo, sem qualquer garantia de resultado.")
     if not considerar_idade:
-         msg_rodape = "CENÁRIO HIPOTÉTICO: Idades de ambos os lutadores igualadas para remover viés de juventude. " + msg_rodape
-         
-    story.append(Paragraph(
-        msg_rodape,
-        ParagraphStyle("footer", fontSize=7, textColor=colors.HexColor("#AAAAAA"), alignment=TA_CENTER)
-    ))
+        msg_rodape = ("CENÁRIO HIPOTÉTICO: as idades de ambos os atletas foram igualadas para remover o "
+                       "viés de juventude da análise. " + msg_rodape)
 
+    story.append(Paragraph(msg_rodape, s_footer_disclaimer))
+
+    # ── Página anexa: metodologia dos fatores de tempo ──────────
     story.append(PageBreak())
-    s_dt = ParagraphStyle("dt", fontSize=18, fontName="Helvetica-Bold", textColor=colors.HexColor("#C8102E"), alignment=TA_CENTER, spaceAfter=20, spaceBefore=40)
-    story.append(Paragraph("Fatores de Desconto de Tempo por Categoria", s_dt))
-    
-    col_d_hdr = ParagraphStyle("cdh", fontSize=10, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=colors.HexColor("#FFFFFF"))
-    col_d_txt = ParagraphStyle("cdt", fontSize=9, fontName="Helvetica", alignment=TA_CENTER, textColor=colors.HexColor("#DDDDDD"))
-    col_d_hl = ParagraphStyle("cdhl", fontSize=9, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=colors.HexColor("#F1C40F"))
-    
-    data_desc = [
-        [Paragraph("Categoria", col_d_hdr), Paragraph("Fator Under 2.5", col_d_hdr), Paragraph("Fator Under 1.5", col_d_hdr)],
-        [Paragraph("Strawweight (52kg)", col_d_txt), Paragraph("0.81", col_d_hl), Paragraph("0.42", col_d_hl)],
-        [Paragraph("Flyweight (57kg)", col_d_txt), Paragraph("0.91", col_d_hl), Paragraph("0.59", col_d_hl)],
-        [Paragraph("Bantamweight (61kg)", col_d_txt), Paragraph("0.86", col_d_hl), Paragraph("0.65", col_d_hl)],
-        [Paragraph("Featherweight (65kg)", col_d_txt), Paragraph("0.92", col_d_hl), Paragraph("0.67", col_d_hl)],
-        [Paragraph("Lightweight (70kg)", col_d_txt), Paragraph("0.92", col_d_hl), Paragraph("0.67", col_d_hl)],
-        [Paragraph("Welterweight (77kg)", col_d_txt), Paragraph("0.90", col_d_hl), Paragraph("0.68", col_d_hl)],
-        [Paragraph("Middleweight (84kg)", col_d_txt), Paragraph("0.91", col_d_hl), Paragraph("0.66", col_d_hl)],
-        [Paragraph("Light Heavyweight (93kg)", col_d_txt), Paragraph("0.94", col_d_hl), Paragraph("0.72", col_d_hl)],
-        [Paragraph("Heavyweight (120kg)", col_d_txt), Paragraph("0.90", col_d_hl), Paragraph("0.70", col_d_hl)]
-    ]
-    
-    t_desc = Table(data_desc, colWidths=[6*cm, 4*cm, 4*cm])
-    t_desc.setStyle(TableStyle([
-        ("ALIGN", (0,0), (-1,-1), "CENTER"),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#333333")),
-        ("GRID", (0,0), (-1,-1), 0.5, colors.HexColor("#444444")),
-        ("TOPPADDING", (0,0), (-1,-1), 6),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
-    ]))
-    story.append(t_desc)
-    
-    s_desc_txt = ParagraphStyle("desc", fontSize=9, fontName="Helvetica", textColor=colors.HexColor("#AAAAAA"), alignment=TA_CENTER, spaceBefore=15)
-    story.append(Paragraph("Esta tabela mostra a taxa histórica de conversão do UFC: de todas as lutas que não chegam à decisão, quantas terminam antes dos minutos finais.<br/>As <b>Odds Justas (EV+)</b> no relatório são calculadas multiplicando a chance de Via Rápida por estes fatores.", s_desc_txt))
+    story.append(Paragraph("Anexo Metodológico", s_section_title))
+    story.append(Paragraph("Fatores de Desconto de Tempo por Categoria de Peso", s_subtitle))
+    story.append(HRFlowable(width="40%", thickness=1, color=COR_PRIMARIA, spaceBefore=6, spaceAfter=16, hAlign="CENTER"))
 
-    def add_metadata(canvas, doc):
+    col_d_hdr = ParagraphStyle("cdh", fontSize=9.5, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=colors.white)
+    col_d_txt = ParagraphStyle("cdt", fontSize=9, fontName="Helvetica", alignment=TA_CENTER, textColor=COR_TEXTO)
+    col_d_hl  = ParagraphStyle("cdhl", fontSize=9, fontName="Helvetica-Bold", alignment=TA_CENTER, textColor=COR_DESTAQUE)
+
+    data_desc = [
+        [Paragraph("Categoria de Peso", col_d_hdr), Paragraph("Fator Under 2.5", col_d_hdr), Paragraph("Fator Under 1.5", col_d_hdr)],
+        [Paragraph("Peso Palha (52 kg)", col_d_txt), Paragraph("0.81", col_d_hl), Paragraph("0.42", col_d_hl)],
+        [Paragraph("Peso Mosca (57 kg)", col_d_txt), Paragraph("0.91", col_d_hl), Paragraph("0.59", col_d_hl)],
+        [Paragraph("Peso Galo (61 kg)", col_d_txt), Paragraph("0.86", col_d_hl), Paragraph("0.65", col_d_hl)],
+        [Paragraph("Peso Pena (65 kg)", col_d_txt), Paragraph("0.92", col_d_hl), Paragraph("0.67", col_d_hl)],
+        [Paragraph("Peso Leve (70 kg)", col_d_txt), Paragraph("0.92", col_d_hl), Paragraph("0.67", col_d_hl)],
+        [Paragraph("Meio-Médio (77 kg)", col_d_txt), Paragraph("0.90", col_d_hl), Paragraph("0.68", col_d_hl)],
+        [Paragraph("Peso Médio (84 kg)", col_d_txt), Paragraph("0.91", col_d_hl), Paragraph("0.66", col_d_hl)],
+        [Paragraph("Meio-Pesado (93 kg)", col_d_txt), Paragraph("0.94", col_d_hl), Paragraph("0.72", col_d_hl)],
+        [Paragraph("Peso Pesado (120 kg)", col_d_txt), Paragraph("0.90", col_d_hl), Paragraph("0.70", col_d_hl)],
+    ]
+
+    t_desc = Table(data_desc, colWidths=[6*cm, 4*cm, 4*cm])
+    t_desc.setStyle(table_header_style(3))
+    story.append(t_desc)
+
+    story.append(Paragraph(
+        "Esta tabela apresenta a taxa histórica de conversão do UFC: entre todas as lutas que não chegam "
+        "à decisão dos juízes, qual proporção se encerra antes dos minutos finais de cada assalto. "
+        "As <b>Odds Justas (EV+)</b> apresentadas ao longo deste relatório são calculadas multiplicando "
+        "a probabilidade de desfecho por via rápida por estes fatores.",
+        s_section_intro))
+
+    def add_page_furniture(canvas, doc):
         canvas.saveState()
-        canvas.setFillColor(colors.HexColor("#121212"))
-        canvas.rect(0, 0, A4[0], A4[1], fill=1)
-        canvas.restoreState()
-        
-        canvas.setAuthor("Minnael Campelo")
+        # Régua superior
+        canvas.setStrokeColor(COR_LINHA)
+        canvas.setLineWidth(0.5)
+        canvas.line(2.2*cm, A4[1] - 1.6*cm, A4[0] - 2.2*cm, A4[1] - 1.6*cm)
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(COR_TEXTO_CLARO)
+        canvas.drawString(2.2*cm, A4[1] - 1.35*cm, "UFC FIGHT PREDICTOR")
+        canvas.drawRightString(A4[0] - 2.2*cm, A4[1] - 1.35*cm, evento_nome)
+
+        # Rodapé
+        canvas.setStrokeColor(COR_LINHA)
+        canvas.line(2.2*cm, 1.6*cm, A4[0] - 2.2*cm, 1.6*cm)
+        canvas.setFont("Helvetica", 7.5)
+        canvas.drawString(2.2*cm, 1.25*cm, f"Gerado em {datetime.now().strftime('%d/%m/%Y')}")
+        canvas.drawCentredString(A4[0] / 2, 1.25*cm, "Documento informativo — não constitui aconselhamento de aposta")
+        canvas.drawRightString(A4[0] - 2.2*cm, 1.25*cm, f"Página {doc.page}")
+
+        canvas.setAuthor(NOME_AUTOR)
         canvas.setTitle(f"{evento_nome} {sufixo}")
         canvas.setSubject("Previsões de lutas do UFC")
         canvas.setCreator("UFC Fight Predictor")
+        canvas.restoreState()
 
-    doc.build(story, onFirstPage=add_metadata, onLaterPages=add_metadata)
+    doc.build(story, onFirstPage=add_page_furniture, onLaterPages=add_page_furniture)
     print(f"PDF salvo: '{nome_arquivo}'")
 
 # ── Execução ──────────────────────────────────────────────────
