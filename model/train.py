@@ -10,7 +10,7 @@ Correções aplicadas vs versões anteriores:
   5. Conjunto de teste jamais é tocado antes da avaliação final
 """
 
-import os, json, pickle, warnings
+import os, re, json, pickle, warnings
 import numpy as np
 import pandas as pd
 import torch
@@ -48,12 +48,101 @@ NUMERIC_BASE = [
     "last_fight_1", "last_fight_2", "last_fight_3", "last_fight_4", "last_fight_5", # ← NOVAS VARIÁVEIS
 ]
 
-# FUNCIONALIDADE NOVA -> CÁLCULO DE SEQUÊNCIA DE VITÓRIAS/DERROTAS
+# FUNCIONALIDADE NOVA -> STREAKS, RATING ELO/SoS E DECAIMENTO TEMPORAL (EWMA - PONTO 6)
+def _extract_cum_snapshot(row, prefix: str = "") -> dict:
+    tf = float(row.get(f"{prefix}total_fights", 0) or 0)
+    avg_sec = float(row.get(f"{prefix}avg_fight_time_sec", 0) or 0)
+    return {
+        "total_fights": tf,
+        "total_sec": tf * avg_sec,
+        "sig_hit": float(row.get(f"{prefix}sig_strikes_hit_total", 0) or 0),
+        "sig_abs": float(row.get(f"{prefix}sig_strikes_absorbed_total", 0) or 0),
+        "td_hit": float(row.get(f"{prefix}td_hit_total", 0) or 0),
+        "td_abs": float(row.get(f"{prefix}td_absorbed_total", 0) or 0),
+        "sub_att": float(row.get(f"{prefix}sub_att_total", 0) or 0),
+        "sub_abs": float(row.get(f"{prefix}sub_absorbed_total", 0) or 0),
+        "wins": float(row.get(f"{prefix}wins", 0) or 0),
+    }
+
+
+def _update_and_get_ewma(past_bouts: list, current_snap: dict, last_snap: dict,
+                         last_bout_meta: dict, current_date: pd.Timestamp,
+                         half_life_years: float = 2.5):
+    """
+    Reconstrói as estatísticas por luta (delta entre snapshots acumulados consecutivos)
+    e aplica decaimento exponencial no tempo (EWMA: w_i = exp(-lambda * delta_anos))
+    com meia-vida de 2.5 anos para capturar a fase recente vs. média da carreira.
+    """
+    if last_snap is not None and last_bout_meta is not None:
+        d_sec = max(15.0, current_snap["total_sec"] - last_snap["total_sec"])
+        past_bouts.append({
+            "date": last_bout_meta["date"],
+            "won": last_bout_meta["won"],
+            "sec": d_sec,
+            "sig_hit": max(0.0, current_snap["sig_hit"] - last_snap["sig_hit"]),
+            "sig_abs": max(0.0, current_snap["sig_abs"] - last_snap["sig_abs"]),
+            "td_hit": max(0.0, current_snap["td_hit"] - last_snap["td_hit"]),
+            "td_abs": max(0.0, current_snap["td_abs"] - last_snap["td_abs"]),
+            "sub_att": max(0.0, current_snap["sub_att"] - last_snap["sub_att"]),
+            "sub_abs": max(0.0, current_snap["sub_abs"] - last_snap["sub_abs"]),
+        })
+
+    if not past_bouts or current_snap["total_fights"] <= 0:
+        return None
+
+    decay_lambda = np.log(2.0) / half_life_years
+    w_sum = w_min_sum = w_wins = 0.0
+    w_sig_hit = w_sig_abs = w_td_hit = w_td_abs = 0.0
+
+    for b in past_bouts:
+        years_ago = max(0.0, (current_date - b["date"]).days / 365.25)
+        w = float(np.exp(-decay_lambda * years_ago))
+        b_min = max(0.25, b["sec"] / 60.0)
+        w_sum += w
+        w_min_sum += w * b_min
+        w_wins += w * (1.0 if b["won"] else 0.0)
+        w_sig_hit += w * b["sig_hit"]
+        w_sig_abs += w * b["sig_abs"]
+        w_td_hit += w * b["td_hit"]
+        w_td_abs += w * b["td_abs"]
+
+    ewma_win_rate = w_wins / max(w_sum, 1e-6)
+    ewma_sig_pm = w_sig_hit / max(w_min_sum, 1e-6)
+    ewma_sig_abs_pm = w_sig_abs / max(w_min_sum, 1e-6)
+    ewma_td_15 = (w_td_hit / max(w_min_sum, 1e-6)) * 15.0
+    ewma_td_abs_15 = (w_td_abs / max(w_min_sum, 1e-6)) * 15.0
+
+    tf = max(1.0, current_snap["total_fights"])
+    tot_min = max(0.25, current_snap["total_sec"] / 60.0)
+    career_win_rate = current_snap["wins"] / tf
+    career_sig_diff = (current_snap["sig_hit"] - current_snap["sig_abs"]) / tot_min
+    career_td_diff = ((current_snap["td_hit"] - current_snap["td_abs"]) / tot_min) * 15.0
+
+    return {
+        "ewma_win_rate": ewma_win_rate,
+        "form_win_trend": ewma_win_rate - career_win_rate,
+        "form_sig_trend": (ewma_sig_pm - ewma_sig_abs_pm) - career_sig_diff,
+        "form_td_trend": (ewma_td_15 - ewma_td_abs_15) - career_td_diff,
+        "ewma_sig_diff": ewma_sig_pm - ewma_sig_abs_pm,
+    }
+
+
 def compute_streaks(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calcula win_streak e loss_streak para cada lutador antes de cada luta.
-    Processa em ordem cronológica — sem data leakage.
+    Calcula cronologicamente (sem data leakage):
+      - win_streak e loss_streak
+      - Ponto 1: elo, strike_elo, grapple_elo, opp_elo_avg, beaten_elo_avg, elo_momentum
+      - Ponto 6: Decaimento Temporal Exponencial (EWMA, meia-vida de 2.5 anos)
+        alocado nos 5 slots de fase recente (last_fight_1..5):
+          1. ewma_win_rate (taxa de vitória ponderada exponencialmente no tempo)
+          2. form_win_trend (fase atual de vitórias vs. média da carreira)
+          3. form_sig_trend (evolução recente do diferencial de golpes/min vs. carreira)
+          4. form_td_trend (evolução recente do diferencial de quedas/15m vs. carreira)
+          5. ewma_sig_diff (diferencial líquido de golpes/min ponderado pela recência)
     """
+    if "a_elo" in df.columns:
+        return df
+
     def _streak(history: list) -> tuple[int, int]:
         """Retorna (win_streak, loss_streak) com base no histórico anterior."""
         if not history:
@@ -69,37 +158,164 @@ def compute_streaks(df: pd.DataFrame) -> pd.DataFrame:
                 else: break
         return win_streak, loss_streak
 
-    # df já chega ordenado por event_date (garantido por load_and_clean)
     fighter_history: dict[str, list[bool]] = {}
-    rows = {"a_win_streak": [], "a_loss_streak": [],
-            "b_win_streak": [], "b_loss_streak": []}
+    elo_rating: dict[str, float] = {}
+    strike_elo: dict[str, float] = {}
+    grapple_elo: dict[str, float] = {}
+    elo_trace: dict[str, list[float]] = {}
+    opp_elos: dict[str, list[float]] = {}
+    beaten_elos: dict[str, list[float]] = {}
+
+    past_bouts: dict[str, list[dict]] = {}
+    last_snap: dict[str, dict] = {}
+    last_bout_meta: dict[str, dict] = {}
+
+    rows = {
+        "a_win_streak": [], "a_loss_streak": [],
+        "b_win_streak": [], "b_loss_streak": [],
+        "a_elo": [], "b_elo": [],
+        "a_strike_elo": [], "b_strike_elo": [],
+        "a_grapple_elo": [], "b_grapple_elo": [],
+        "a_opp_elo_avg": [], "b_opp_elo_avg": [],
+        "a_beaten_elo_avg": [], "b_beaten_elo_avg": [],
+        "a_elo_momentum": [], "b_elo_momentum": [],
+    }
+    for p in ("a_", "b_"):
+        for i in range(1, 6):
+            rows[f"{p}last_fight_{i}"] = []
 
     for _, row in df.iterrows():
         fa, fb = row["fighter_a"], row["fighter_b"]
+        ev_date = row["event_date"]
+        ha = fighter_history.get(fa, [])
+        hb = fighter_history.get(fb, [])
 
-        wa, la = _streak(fighter_history.get(fa, []))
-        wb, lb = _streak(fighter_history.get(fb, []))
+        wa, la = _streak(ha)
+        wb, lb = _streak(hb)
 
         rows["a_win_streak"].append(wa)
         rows["a_loss_streak"].append(la)
         rows["b_win_streak"].append(wb)
         rows["b_loss_streak"].append(lb)
 
+        # Ratings Elo e Força do Cartel ANTES da luta acontecer
+        ra = elo_rating.get(fa, 1500.0)
+        rb = elo_rating.get(fb, 1500.0)
+        sa_elo = strike_elo.get(fa, 1500.0)
+        sb_elo = strike_elo.get(fb, 1500.0)
+        ga_elo = grapple_elo.get(fa, 1500.0)
+        gb_elo = grapple_elo.get(fb, 1500.0)
+
+        rows["a_elo"].append(ra)
+        rows["b_elo"].append(rb)
+        rows["a_strike_elo"].append(sa_elo)
+        rows["b_strike_elo"].append(sb_elo)
+        rows["a_grapple_elo"].append(ga_elo)
+        rows["b_grapple_elo"].append(gb_elo)
+
+        opps_a = opp_elos.get(fa, [])
+        opps_b = opp_elos.get(fb, [])
+        rows["a_opp_elo_avg"].append(float(np.mean(opps_a)) if opps_a else 1500.0)
+        rows["b_opp_elo_avg"].append(float(np.mean(opps_b)) if opps_b else 1500.0)
+
+        beat_a = beaten_elos.get(fa, [])
+        beat_b = beaten_elos.get(fb, [])
+        rows["a_beaten_elo_avg"].append(float(np.mean(beat_a)) if beat_a else 1500.0)
+        rows["b_beaten_elo_avg"].append(float(np.mean(beat_b)) if beat_b else 1500.0)
+
+        tr_a = elo_trace.get(fa, [1500.0])
+        tr_b = elo_trace.get(fb, [1500.0])
+        rows["a_elo_momentum"].append(ra - (tr_a[-3] if len(tr_a) >= 3 else tr_a[0]))
+        rows["b_elo_momentum"].append(rb - (tr_b[-3] if len(tr_b) >= 3 else tr_b[0]))
+
+        # Ponto 6: Decaimento Exponencial no Tempo (EWMA, meia-vida = 2.5 anos)
+        snap_a = _extract_cum_snapshot(row, "a_")
+        snap_b = _extract_cum_snapshot(row, "b_")
+        ewma_a = _update_and_get_ewma(
+            past_bouts.setdefault(fa, []), snap_a, last_snap.get(fa),
+            last_bout_meta.get(fa), ev_date, half_life_years=2.5
+        )
+        ewma_b = _update_and_get_ewma(
+            past_bouts.setdefault(fb, []), snap_b, last_snap.get(fb),
+            last_bout_meta.get(fb), ev_date, half_life_years=2.5
+        )
+        for p, ew in (("a_", ewma_a), ("b_", ewma_b)):
+            if ew is not None:
+                rows[f"{p}last_fight_1"].append(ew["ewma_win_rate"])
+                rows[f"{p}last_fight_2"].append(ew["form_win_trend"])
+                rows[f"{p}last_fight_3"].append(ew["form_sig_trend"])
+                rows[f"{p}last_fight_4"].append(ew["form_td_trend"])
+                rows[f"{p}last_fight_5"].append(ew["ewma_sig_diff"])
+            else:
+                for i in range(1, 6):
+                    rows[f"{p}last_fight_{i}"].append(0.0)
+
         # Atualiza histórico COM o resultado desta luta
         a_won = bool(row["label"])
+        last_snap[fa] = snap_a
+        last_snap[fb] = snap_b
+        last_bout_meta[fa] = {"date": ev_date, "won": a_won}
+        last_bout_meta[fb] = {"date": ev_date, "won": not a_won}
         fighter_history.setdefault(fa, []).append(a_won)
         fighter_history.setdefault(fb, []).append(not a_won)
+
+        opp_elos.setdefault(fa, []).append(rb)
+        opp_elos.setdefault(fb, []).append(ra)
+        if a_won:
+            beaten_elos.setdefault(fa, []).append(rb)
+        else:
+            beaten_elos.setdefault(fb, []).append(ra)
+
+        method = str(row.get("method", "") or "")
+        try:
+            rnd = int(float(row.get("round", 3) or 3))
+        except Exception:
+            rnd = 3
+
+        is_ko = bool(re.search(r"KO|TKO", method, re.I))
+        is_sub = bool(re.search(r"Sub", method, re.I))
+        is_split = bool(re.search(r"Split", method, re.I))
+
+        if is_ko or is_sub:
+            mult = 1.35 if rnd == 1 else (1.20 if rnd == 2 else 1.15)
+        elif is_split:
+            mult = 0.75
+        else:
+            mult = 1.0
+
+        ea = 1.0 / (1.0 + 10.0 ** ((rb - ra) / 400.0))
+        score_a = 1.0 if a_won else 0.0
+        k_a = 36.0 if len(ha) < 4 else 24.0
+        k_b = 36.0 if len(hb) < 4 else 24.0
+
+        new_ra = ra + k_a * mult * (score_a - ea)
+        new_rb = rb + k_b * mult * ((1.0 - score_a) - (1.0 - ea))
+        elo_rating[fa] = new_ra
+        elo_rating[fb] = new_rb
+        elo_trace.setdefault(fa, [1500.0]).append(new_ra)
+        elo_trace.setdefault(fb, [1500.0]).append(new_rb)
+
+        if is_ko:
+            esa = 1.0 / (1.0 + 10.0 ** ((sb_elo - sa_elo) / 400.0))
+            strike_elo[fa] = sa_elo + 28.0 * (score_a - esa)
+            strike_elo[fb] = sb_elo + 28.0 * ((1.0 - score_a) - (1.0 - esa))
+        elif is_sub:
+            ega = 1.0 / (1.0 + 10.0 ** ((gb_elo - ga_elo) / 400.0))
+            grapple_elo[fa] = ga_elo + 28.0 * (score_a - ega)
+            grapple_elo[fb] = gb_elo + 28.0 * ((1.0 - score_a) - (1.0 - ega))
 
     df = df.copy()
     for col, vals in rows.items():
         df[col] = vals
 
     # Diagnóstico rápido
-    print(f"\nStreak calculado:")
+    print(f"\nStreaks e Ratings Elo/SoS calculados:")
     print(f"  win_streak  — max: {df['a_win_streak'].max()}  "
           f"média: {df['a_win_streak'].mean():.2f}")
     print(f"  loss_streak — max: {df['a_loss_streak'].max()}  "
           f"média: {df['a_loss_streak'].mean():.2f}")
+    print(f"  elo_rating  — min: {df['a_elo'].min():.1f}  "
+          f"max: {df['a_elo'].max():.1f}  média: {df['a_elo'].mean():.1f}")
 
     return df
 
@@ -111,9 +327,12 @@ def compute_streaks(df: pd.DataFrame) -> pd.DataFrame:
 def load_and_clean(path: str) -> pd.DataFrame:
     df = pd.read_csv(path)
     df["event_date"] = pd.to_datetime(df["event_date"])
-    df = df.sort_values("event_date").reset_index(drop=True)
+    df = df.sort_values("event_date", kind="mergesort").reset_index(drop=True)
 
     before = len(df)
+
+    # Calcula streaks, Elo e Força do Cartel no histórico completo ANTES de filtrar estreantes
+    df = compute_streaks(df)
 
     # Remove lutas onde qualquer lutador é estreante (sem histórico)
     mask = (df["a_total_fights"] > 0) & (df["b_total_fights"] > 0)
@@ -212,6 +431,28 @@ def build_row_features(row_a: dict, row_b: dict, a_win_streak: float=0, a_loss_s
     # INJEÇÃO DOS STREAKS (As novas features)
     feats.extend([a_win_streak, a_loss_streak, b_win_streak, b_loss_streak])
     feats.extend([a_win_streak - b_win_streak, a_loss_streak - b_loss_streak])
+
+    # INJEÇÃO DE RATING ELO DINÂMICO E FORÇA DO CARTEL (Strength of Schedule)
+    a_elo      = float(row_a.get("elo", 1500.0) or 1500.0)
+    b_elo      = float(row_b.get("elo", 1500.0) or 1500.0)
+    a_s_elo    = float(row_a.get("strike_elo", 1500.0) or 1500.0)
+    b_s_elo    = float(row_b.get("strike_elo", 1500.0) or 1500.0)
+    a_g_elo    = float(row_a.get("grapple_elo", 1500.0) or 1500.0)
+    b_g_elo    = float(row_b.get("grapple_elo", 1500.0) or 1500.0)
+    a_opp_elo  = float(row_a.get("opp_elo_avg", 1500.0) or 1500.0)
+    b_opp_elo  = float(row_b.get("opp_elo_avg", 1500.0) or 1500.0)
+    a_beat_elo = float(row_a.get("beaten_elo_avg", 1500.0) or 1500.0)
+    b_beat_elo = float(row_b.get("beaten_elo_avg", 1500.0) or 1500.0)
+    a_mom      = float(row_a.get("elo_momentum", 0.0) or 0.0)
+    b_mom      = float(row_b.get("elo_momentum", 0.0) or 0.0)
+
+    elo_expected_a = 1.0 / (1.0 + 10.0 ** ((b_elo - a_elo) / 400.0))
+    elo_a_vec = [a_elo, a_s_elo, a_g_elo, a_opp_elo, a_beat_elo, a_mom]
+    elo_b_vec = [b_elo, b_s_elo, b_g_elo, b_opp_elo, b_beat_elo, b_mom]
+    feats.extend(elo_a_vec)
+    feats.extend(elo_b_vec)
+    feats.extend([a - b for a, b in zip(elo_a_vec, elo_b_vec)])
+    feats.append(elo_expected_a - 0.5)
 
     # 4. Stance one-hot × 2
     for stats in (row_a, row_b):

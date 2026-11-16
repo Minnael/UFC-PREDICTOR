@@ -105,6 +105,28 @@ def build_row_features(stats_a: dict, stats_b: dict, a_win_streak: float=0, a_lo
     feats.extend([a_win_streak, a_loss_streak, b_win_streak, b_loss_streak])
     feats.extend([a_win_streak - b_win_streak, a_loss_streak - b_loss_streak])
 
+    # 5. RATING ELO DINÂMICO E FORÇA DO CARTEL (Strength of Schedule)
+    a_elo      = float(stats_a.get("elo", 1500.0) or 1500.0)
+    b_elo      = float(stats_b.get("elo", 1500.0) or 1500.0)
+    a_s_elo    = float(stats_a.get("strike_elo", 1500.0) or 1500.0)
+    b_s_elo    = float(stats_b.get("strike_elo", 1500.0) or 1500.0)
+    a_g_elo    = float(stats_a.get("grapple_elo", 1500.0) or 1500.0)
+    b_g_elo    = float(stats_b.get("grapple_elo", 1500.0) or 1500.0)
+    a_opp_elo  = float(stats_a.get("opp_elo_avg", 1500.0) or 1500.0)
+    b_opp_elo  = float(stats_b.get("opp_elo_avg", 1500.0) or 1500.0)
+    a_beat_elo = float(stats_a.get("beaten_elo_avg", 1500.0) or 1500.0)
+    b_beat_elo = float(stats_b.get("beaten_elo_avg", 1500.0) or 1500.0)
+    a_mom      = float(stats_a.get("elo_momentum", 0.0) or 0.0)
+    b_mom      = float(stats_b.get("elo_momentum", 0.0) or 0.0)
+
+    elo_expected_a = 1.0 / (1.0 + 10.0 ** ((b_elo - a_elo) / 400.0))
+    elo_a_vec = [a_elo, a_s_elo, a_g_elo, a_opp_elo, a_beat_elo, a_mom]
+    elo_b_vec = [b_elo, b_s_elo, b_g_elo, b_opp_elo, b_beat_elo, b_mom]
+    feats.extend(elo_a_vec)
+    feats.extend(elo_b_vec)
+    feats.extend([a - b for a, b in zip(elo_a_vec, elo_b_vec)])
+    feats.append(elo_expected_a - 0.5)
+
     # 5. Stances
     for stats in (stats_a, stats_b):
         idx = STANCE_MAP.get(str(stats.get("stance", "Orthodox")), 0)

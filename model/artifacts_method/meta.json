@@ -1,5 +1,5 @@
 {
-  "n_features": 150,
+  "n_features": 169,
   "numeric_base": [
     "height_cm",
     "weight_kg",
@@ -52,5 +52,5 @@
     0.6962569355964661
   ],
   "test_acc": 0.4902597402597403,
-  "test_logloss": 1.0186396475140336
+  "test_logloss": 1.0331907889392142
 }

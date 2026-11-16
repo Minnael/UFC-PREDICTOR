@@ -18,6 +18,160 @@ with open(os.path.join("scripts", "next_event_stats.json"), encoding="utf-8") as
 
 predictor = FullPredictor(win_artifacts="model/artifacts", method_artifacts="model/artifacts_method")
 
+
+import re
+import numpy as np
+import pandas as pd
+from model.train import _extract_cum_snapshot, _update_and_get_ewma
+
+def inject_current_streaks(fights_list: list, csv_path: str):
+    df = pd.read_csv(csv_path)
+    df["event_date"] = pd.to_datetime(df["event_date"])
+    df = df.sort_values("event_date", kind="mergesort").reset_index(drop=True)
+
+    history = {}
+    elo_rating = {}
+    strike_elo = {}
+    grapple_elo = {}
+    elo_trace = {}
+    opp_elos = {}
+    beaten_elos = {}
+
+    past_bouts = {}
+    last_snap = {}
+    last_bout_meta = {}
+
+    for _, row in df.iterrows():
+        fa, fb, a_won = row["fighter_a"], row["fighter_b"], bool(row["label"])
+        ev_date = row["event_date"]
+        ha = history.get(fa, [])
+        hb = history.get(fb, [])
+
+        ra = elo_rating.get(fa, 1500.0)
+        rb = elo_rating.get(fb, 1500.0)
+        sa_elo = strike_elo.get(fa, 1500.0)
+        sb_elo = strike_elo.get(fb, 1500.0)
+        ga_elo = grapple_elo.get(fa, 1500.0)
+        gb_elo = grapple_elo.get(fb, 1500.0)
+
+        snap_a = _extract_cum_snapshot(row, "a_")
+        snap_b = _extract_cum_snapshot(row, "b_")
+        _update_and_get_ewma(
+            past_bouts.setdefault(fa, []), snap_a, last_snap.get(fa),
+            last_bout_meta.get(fa), ev_date, half_life_years=2.5
+        )
+        _update_and_get_ewma(
+            past_bouts.setdefault(fb, []), snap_b, last_snap.get(fb),
+            last_bout_meta.get(fb), ev_date, half_life_years=2.5
+        )
+        last_snap[fa] = snap_a
+        last_snap[fb] = snap_b
+        last_bout_meta[fa] = {"date": ev_date, "won": a_won}
+        last_bout_meta[fb] = {"date": ev_date, "won": not a_won}
+
+        opp_elos.setdefault(fa, []).append(rb)
+        opp_elos.setdefault(fb, []).append(ra)
+        if a_won:
+            beaten_elos.setdefault(fa, []).append(rb)
+        else:
+            beaten_elos.setdefault(fb, []).append(ra)
+
+        method = str(row.get("method", "") or "")
+        try:
+            rnd = int(float(row.get("round", 3) or 3))
+        except Exception:
+            rnd = 3
+
+        is_ko = bool(re.search(r"KO|TKO", method, re.I))
+        is_sub = bool(re.search(r"Sub", method, re.I))
+        is_split = bool(re.search(r"Split", method, re.I))
+
+        if is_ko or is_sub:
+            mult = 1.35 if rnd == 1 else (1.20 if rnd == 2 else 1.15)
+        elif is_split:
+            mult = 0.75
+        else:
+            mult = 1.0
+
+        ea = 1.0 / (1.0 + 10.0 ** ((rb - ra) / 400.0))
+        score_a = 1.0 if a_won else 0.0
+        k_a = 36.0 if len(ha) < 4 else 24.0
+        k_b = 36.0 if len(hb) < 4 else 24.0
+
+        new_ra = ra + k_a * mult * (score_a - ea)
+        new_rb = rb + k_b * mult * ((1.0 - score_a) - (1.0 - ea))
+        elo_rating[fa] = new_ra
+        elo_rating[fb] = new_rb
+        elo_trace.setdefault(fa, [1500.0]).append(new_ra)
+        elo_trace.setdefault(fb, [1500.0]).append(new_rb)
+
+        if is_ko:
+            esa = 1.0 / (1.0 + 10.0 ** ((sb_elo - sa_elo) / 400.0))
+            strike_elo[fa] = sa_elo + 28.0 * (score_a - esa)
+            strike_elo[fb] = sb_elo + 28.0 * ((1.0 - score_a) - (1.0 - esa))
+        elif is_sub:
+            ega = 1.0 / (1.0 + 10.0 ** ((gb_elo - ga_elo) / 400.0))
+            grapple_elo[fa] = ga_elo + 28.0 * (score_a - ega)
+            grapple_elo[fb] = gb_elo + 28.0 * ((1.0 - score_a) - (1.0 - ega))
+
+        history.setdefault(fa, []).append(a_won)
+        history.setdefault(fb, []).append(not a_won)
+
+    def get_streak(f_name):
+        h = history.get(f_name, [])
+        if not h:
+            return 0, 0
+        ws = ls = 0
+        if h[-1]:
+            for won in reversed(h):
+                if won: ws += 1
+                else: break
+        else:
+            for won in reversed(h):
+                if not won: ls += 1
+                else: break
+        return ws, ls
+
+    ref_date = df["event_date"].max() + pd.Timedelta(days=14)
+
+    for fight in fights_list:
+        for f_name, stats in fight.items():
+            ws, ls = get_streak(f_name)
+            stats.setdefault("win_streak", ws)
+            stats.setdefault("loss_streak", ls)
+
+            curr_elo = elo_rating.get(f_name, 1500.0)
+            tr = elo_trace.get(f_name, [1500.0])
+            opps = opp_elos.get(f_name, [])
+            beat = beaten_elos.get(f_name, [])
+
+            stats.setdefault("elo", curr_elo)
+            stats.setdefault("strike_elo", strike_elo.get(f_name, 1500.0))
+            stats.setdefault("grapple_elo", grapple_elo.get(f_name, 1500.0))
+            stats.setdefault("opp_elo_avg", float(np.mean(opps)) if opps else 1500.0)
+            stats.setdefault("beaten_elo_avg", float(np.mean(beat)) if beat else 1500.0)
+            stats.setdefault("elo_momentum", curr_elo - (tr[-3] if len(tr) >= 3 else tr[0]))
+
+            # Ponto 6: Calcula EWMA para a luta futura usando o snapshot atual do lutador
+            curr_snap = _extract_cum_snapshot(stats, "")
+            bouts_copy = list(past_bouts.get(f_name, []))
+            ew = _update_and_get_ewma(
+                bouts_copy, curr_snap, last_snap.get(f_name),
+                last_bout_meta.get(f_name), ref_date, half_life_years=2.5
+            )
+            if ew is not None:
+                stats.setdefault("last_fight_1", ew["ewma_win_rate"])
+                stats.setdefault("last_fight_2", ew["form_win_trend"])
+                stats.setdefault("last_fight_3", ew["form_sig_trend"])
+                stats.setdefault("last_fight_4", ew["form_td_trend"])
+                stats.setdefault("last_fight_5", ew["ewma_sig_diff"])
+            else:
+                for i in range(1, 6):
+                    stats.setdefault(f"last_fight_{i}", 0.0)
+
+# Chamada logo após carregar o next_event_stats.json:
+inject_current_streaks(fights, "scripts/global_distribuido/ufc_dataset.csv")
+
 # ── Paleta institucional ────────────────────────────────────────
 # Cada cor existe em duas formas: string hexadecimal (para uso dentro de
 # tags <font color="..."> em Paragraphs) e objeto Color (para tabelas,

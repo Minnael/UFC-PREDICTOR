@@ -248,6 +248,39 @@ def calc_stats(profile: dict) -> dict:
     s["td_absorbed_per_15min"]        = round(td_a/total_min*15, 3)
     s["sub_absorbed_per_15min"]       = round(sub_a/total_min*15, 3)
 
+    # Decaimento Exponencial no Tempo (EWMA, meia-vida de 2.5 anos)
+    import math
+    decay_lambda = math.log(2.0) / 2.5
+    w_sum = w_min_sum = w_wins = 0.0
+    w_sig_h = w_sig_a = w_td_h = w_td_a = 0.0
+    for f in hist:
+        years_ago = max(0.0, (before - f["date"]).days / 365.25)
+        w = math.exp(-decay_lambda * years_ago)
+        f_min = max(0.25, fight_seconds(f["time"], f["round"]) / 60.0)
+        w_sum += w
+        w_min_sum += w * f_min
+        w_wins += w * (1.0 if f["result"] == "W" else 0.0)
+        w_sig_h += w * (f["sig_strikes_hit"] or 0)
+        w_sig_a += w * (f.get("sig_strikes_absorbed") or 0)
+        w_td_h += w * (f["td_hit"] or 0)
+        w_td_a += w * (f.get("td_absorbed") or 0)
+
+    ewma_win_rate = w_wins / max(w_sum, 1e-6)
+    ewma_sig_pm = w_sig_h / max(w_min_sum, 1e-6)
+    ewma_sig_abs_pm = w_sig_a / max(w_min_sum, 1e-6)
+    ewma_td_15 = (w_td_h / max(w_min_sum, 1e-6)) * 15.0
+    ewma_td_abs_15 = (w_td_a / max(w_min_sum, 1e-6)) * 15.0
+
+    career_win_rate = len(wins) / max(1, len(hist))
+    career_sig_diff = (sig_h - sig_a) / total_min
+    career_td_diff = ((td_h - td_a) / total_min) * 15.0
+
+    s["last_fight_1"] = round(ewma_win_rate, 4)
+    s["last_fight_2"] = round(ewma_win_rate - career_win_rate, 4)
+    s["last_fight_3"] = round((ewma_sig_pm - ewma_sig_abs_pm) - career_sig_diff, 4)
+    s["last_fight_4"] = round((ewma_td_15 - ewma_td_abs_15) - career_td_diff, 4)
+    s["last_fight_5"] = round(ewma_sig_pm - ewma_sig_abs_pm, 4)
+
     return s
 
 
